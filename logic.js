@@ -66,7 +66,9 @@
   // 2) 4人以上のグループ: 1年生込みで男女それぞれ2人以上になるよう残りからランダムに入れる
   // 3) 新上級生の男女差が3人以上のグループは、グループ間で男女を入れ替えて差を2人以下に（できなければそのまま）
   // 4) 新上級生の3年・2年の差が2人以上のグループは、同性同士を入れ替えて差を1人以下に（できなければそのまま）
-  function distribute(groups, chosen) {
+  // 5) 6人以上で3年が2人未満のグループは、選ばれなかった3年（reserves）のうちポイントが最も低い人と、
+  //    グループ内で同性かつポイントが最も高い2年を交換する
+  function distribute(groups, chosen, reserves) {
     const pool = { m: shuffle(chosen.filter(isMale)), f: shuffle(chosen.filter((p) => !isMale(p))) };
     const take = (male) => (male ? pool.m : pool.f).pop() || (male ? pool.f : pool.m).pop() || null;
     const slots = groups.map(() => []);
@@ -124,6 +126,23 @@
     improve(genderSkew, (x, y) => isMale(x) !== isMale(y));
     improve(gradeSkew, (x, y) => isMale(x) === isMale(y) && isThird(x) !== isThird(y), genderSkew);
 
+    const pts = (p) => Number(p.points) || 0;
+    const spare = shuffle((reserves || []).filter(isThird)).sort((p, q) => pts(p) - pts(q));
+    slots.forEach((s, gi) => {
+      while (groups[gi].freshmen.length + s.length >= 6 && s.filter(isThird).length < 2) {
+        let done = false;
+        for (let k = 0; k < spare.length && !done; k++) {
+          const third = spare[k];
+          const seconds = shuffle(s.filter((p) => !isThird(p) && isMale(p) === isMale(third))).sort((p, q) => pts(q) - pts(p));
+          if (!seconds.length) continue;
+          s[s.indexOf(seconds[0])] = third;
+          spare.splice(k, 1);
+          done = true;
+        }
+        if (!done) break;
+      }
+    });
+
     return slots.map((s) => s.sort((p, q) => Number(q.grade) - Number(p.grade)).map((p) => p.id));
   }
 
@@ -135,7 +154,7 @@
     const all = freshmen.concat(seniors);
     const m = all.filter(isMale).length, f = all.length - m;
     if (all.length >= 4 && (m < 2 || f < 2)) w.push("4人以上なのに" + (m < 2 ? "男子" : "女子") + "が2人未満");
-    else if (all.length <= 3 && Math.abs(m - f) > 1) w.push("男女の差が大きいです");
+    else if (Math.abs(m - f) >= 3) w.push("男女の差が大きいです");
     if (genderSkew(seniors)) w.push("新上級生の男女差が3人以上です");
     if (gradeSkew(seniors)) w.push("新上級生の3年・2年の差が2人以上です");
     return { warnings: w, male: m, female: f };

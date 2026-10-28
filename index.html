@@ -176,7 +176,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="logic.js"></script>
+<script src="logic.js?v=4"></script>
 <script>
 (function () {
   const L = window.GohanLogic;
@@ -569,7 +569,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       freshmen: Object.entries(day.fGroup || {}).filter(([, x]) => x === gi).map(([id]) => F[id] && { id, ...F[id] }).filter(Boolean),
     }));
     const chosen = L.selectSeniors(cands, total, ui.rand, [].concat(...groups.map((g) => g.freshmen)));
-    const res = L.distribute(groups, chosen);
+    const res = L.distribute(groups, chosen, cands.filter((p) => !chosen.includes(p)));
     day.groups.forEach((g, gi) => { g.sIds = res[gi]; });
     return chosen.length < total ? "来られる新上級生が" + (total - chosen.length) + "人足りません" : "振り分けました。内容を確認してください";
   }
