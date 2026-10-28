@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<title>ごはん担当ふりわけ</title>
+<title>ごはんふりわけ</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@500&display=swap">
 <script>
@@ -97,7 +97,16 @@ input:focus-visible, select:focus-visible, button:focus-visible, [tabindex]:focu
 .btn.small { min-height: 34px; font-size: 13px; padding: 0 12px; border-radius: 9px; }
 .btn.danger { color: var(--warn); }
 .btn.danger.armed { background: var(--warn); color: #fff; border-color: var(--warn); }
-.btn.link { border: 0; background: transparent; padding: 0 4px; min-height: 36px; color: var(--muted); }
+.btn.back { align-self: flex-start; min-height: 38px; font-size: 14px; padding: 0 14px; border-radius: 10px; border: 1.5px solid var(--ink); background: var(--surface); }
+.fnames { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 8px 14px 10px; font-size: 14px; font-weight: 700; }
+.fnames .m { color: var(--muted); font-size: 11px; font-weight: 700; margin-left: 2px; }
+.cmt { display: flex; flex-direction: column; gap: 2px; padding: 10px 14px; border-top: 1px solid var(--line); }
+.cmt:first-child { border-top: 0; }
+.cmt-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.cmt-h b { color: var(--ink); font-size: 14px; }
+.cmt p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+textarea { font: inherit; font-size: 16px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; width: 100%; min-height: 80px; resize: vertical; }
+.cnt { font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--yolk-soft); color: var(--yolk-ink); white-space: nowrap; }
 .btn:disabled { opacity: .45; cursor: default; }
 .btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .btns .btn { flex: 1 1 auto; }
@@ -151,7 +160,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
 <body>
 
 <header class="top"><div class="wrap">
-  <h1>ごはん担当ふりわけ</h1>
+  <h1>ごはんふりわけ</h1>
   <div class="hdr-r">
     <span class="role" id="role">読み込み中</span>
     <button class="btn small" id="b-login" type="button" hidden>編集ログイン</button>
@@ -215,8 +224,39 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       state = normalize(snap.exists ? snap.data() : null);
       ready = true; render();
     }, (e) => { console.error(e); ready = true; toast("データを読み込めませんでした"); render(); });
+    let first = true;
+    Store.ref.collection("comments").onSnapshot((snap) => {
+      remoteComments = snap.docs.map((doc) => {
+        const x = doc.data({ serverTimestamps: "estimate" });
+        return { id: doc.id, dayId: x.dayId, name: x.name, text: x.text, at: x.at && x.at.toMillis ? x.at.toMillis() : Date.now() };
+      });
+      if (!first && canEdit) {
+        const added = snap.docChanges().filter((c) => c.type === "added" && !c.doc.metadata.hasPendingWrites);
+        if (added.length) toast("新しいコメント：" + (added[0].doc.data().name || ""));
+      }
+      first = false;
+      render();
+    }, (e) => console.error(e));
     firebase.auth().onAuthStateChanged((u) => { canEdit = !!u; render(); });
     $("#b-login").hidden = false;
+  }
+
+  // コメントは本体とは別に保存する（部員も書き込むため）。テストモードでは state.comments に入れる
+  let remoteComments = [];
+  function dayComments(dayId) {
+    const all = Store.mode === "local" ? Object.entries(state.comments || {}).map(([id, c]) => ({ id, ...c })) : remoteComments;
+    return all.filter((c) => c.dayId === dayId).sort((a, b) => b.at - a.at);
+  }
+  async function postComment(dayId, name, text) {
+    if (Store.mode === "local") return save((s) => { s.comments = s.comments || {}; s.comments[uid()] = { dayId, name, text, at: Date.now() }; });
+    try {
+      await Store.ref.collection("comments").add({ dayId, name, text, at: firebase.firestore.FieldValue.serverTimestamp() });
+      return true;
+    } catch (e) { console.error(e); return false; }
+  }
+  function deleteComment(id) {
+    if (Store.mode === "local") return save((s) => { delete s.comments[id]; }, "コメントを削除しました");
+    return Store.ref.collection("comments").doc(id).delete().then(() => toast("コメントを削除しました"), () => toast("削除できませんでした"));
   }
 
   // mutate(next) で変更を書き、保存する
@@ -282,10 +322,16 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       v.innerHTML = '<section><h2>リンクが正しくありません</h2><p class="hint">管理者から共有されたリンクを、最後まで省略せずに開いてください。</p></section>';
       return;
     }
+    // 書きかけのコメントは再描画で消さない
+    const keep = {};
+    ["c-name", "c-text"].forEach((k) => { const el = document.getElementById(k); if (el) keep[k] = el.value; });
+    const focused = document.activeElement && document.activeElement.id;
     if (ui.tab === "days" && ui.dayId && state.days[ui.dayId]) v.innerHTML = canEdit ? dayEditor(ui.dayId) : dayDetailView(ui.dayId);
     else if (ui.tab === "days") { ui.dayId = null; v.innerHTML = daysList(); }
     else if (ui.tab === "seniors") v.innerHTML = seniorsView();
     else v.innerHTML = freshmenView();
+    Object.entries(keep).forEach(([k, val]) => { const el = document.getElementById(k); if (el) el.value = val; });
+    if (focused && keep[focused] !== undefined) { const el = document.getElementById(focused); if (el) el.focus(); }
   }
 
   const ICON = {
@@ -319,17 +365,21 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     if (!days.length) h += '<ul class="list"><li class="blank">' + (canEdit ? "上で日付を入れて日程を作ると、ここに並びます。" : "まだ公開された担当はありません。") + "</li></ul>";
     days.forEach((d) => {
       const nF = Object.keys(d.fGroup || {}).length;
+      const nC = dayComments(d.id).length;
       h += '<div class="day tap" data-open-day="' + d.id + '" tabindex="0" role="button"><div class="day-h"><div><b>' + fmtDate(d.date) + '</b> <span class="sub">' + esc(d.note || "") + "</span></div>" +
         '<span class="status st-' + (d.status || "draft") + '">' + STATUS[d.status || "draft"] + "</span></div>" +
-        (canEdit ? '<p class="hint">1年生 ' + nF + "人・" + (d.groups || []).length + "グループ</p>" : groupSummary(d)) + "</div>";
+        (canEdit ? '<p class="hint">1年生 ' + nF + "人・" + (d.groups || []).length + "グループ</p>" : groupSummary(d)) +
+        (nC || d.status === "published" ? '<div style="display:flex;gap:8px;align-items:center"><span class="cnt">コメント ' + nC + "件</span>" +
+          (d.status === "published" ? '<span class="hint">タップして詳細・コメントを開く</span>' : "") + "</div>" : "") + "</div>";
     });
     return h + "</section>";
   }
 
   function dayDetailView(id) {
     const d = { id, ...state.days[id] };
-    return '<section><button class="btn link" data-back type="button">← 日程一覧</button><div class="day"><div class="day-h"><div><b>' + fmtDate(d.date) +
-      '</b> <span class="sub">' + esc(d.note || "") + '</span></div><span class="status st-' + d.status + '">' + STATUS[d.status] + "</span></div>" + groupSummary(d) + "</div></section>";
+    return '<section><button class="btn back" data-back type="button">← 日程一覧</button><div class="day"><div class="day-h"><div><b>' + fmtDate(d.date) +
+      '</b> <span class="sub">' + esc(d.note || "") + '</span></div><span class="status st-' + d.status + '">' + STATUS[d.status] + "</span></div>" + groupSummary(d) + "</div></section>" +
+      commentsSection(d);
   }
 
   // ---------- 日程の編集（1〜6の流れ） ----------
@@ -341,7 +391,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     const fg = d.fGroup || {};
     const groups = d.groups || [];
     const S = state.seniors;
-    let h = '<section><button class="btn link" data-back type="button">← 日程一覧</button>' +
+    let h = '<section><button class="btn back" data-back type="button">← 日程一覧</button>' +
       '<div class="day"><div class="day-h"><div><b>' + fmtDate(d.date) + '</b> <span class="sub">' + esc(d.note || "") + "</span></div>" +
       '<span class="status st-' + d.status + '">' + STATUS[d.status] + "</span></div>" +
       (locked ? '<p class="hint">ポイント反映済みのため編集できません。直すときは一番下の「反映を取り消す」を使います。</p>' : "") + "</div></section>";
@@ -351,6 +401,8 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     h += '<section><h2><span><span class="step">2</span>連れていく1年生</span><small>' + nSel + "人</small></h2>";
     if (!F.length) h += '<ul class="list"><li class="blank">1年生タブで1年生を登録すると、ここから選べます。</li></ul>';
     else {
+      if (!locked) h += '<div class="btns"><button class="btn small" type="button" data-all-f="1"' + (nSel === F.length ? " disabled" : "") + '>全員選ぶ</button>' +
+        '<button class="btn small" type="button" data-all-f="0"' + (!nSel ? " disabled" : "") + ">全員外す</button></div>";
       h += '<details' + (nSel && groups.some((g) => (g.sIds || []).length) ? "" : " open") + '><summary>1年生を選ぶ（' + nSel + "/" + F.length + '人）</summary><ul class="list" style="margin-top:6px">' +
         F.map((p) => '<li style="grid-template-columns:1fr"><label class="check"><input type="checkbox" data-pick-f="' + p.id + '"' + (p.id in fg ? " checked" : "") + (locked ? " disabled" : "") +
           '><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + '</small></div><div class="pt">' + (times[p.id] || 0) + "<small>回</small></div></label></li>").join("") + "</ul></details>";
@@ -361,20 +413,24 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     h += '<section><h2><span><span class="step">3</span>グループ分け<span class="step" style="margin-left:6px">4</span>必要な新上級生</span></h2>' +
       '<div class="panel"><div class="row" style="align-items:flex-end"><div class="f">グループ数<div class="stepper"><button type="button" data-gcount="-1" aria-label="減らす"' + (locked ? " disabled" : "") + '>−</button><output class="num">' + groups.length +
       '</output><button type="button" data-gcount="1" aria-label="増やす"' + (locked ? " disabled" : "") + ">＋</button></div></div>" +
-      '<button class="btn" type="button" data-split' + (locked || !nSel || !groups.length ? " disabled" : "") + ">1年生を男女均等に分ける</button></div>";
-    if (groups.length && nSel) {
-      h += '<ul class="list">' + F.filter((p) => p.id in fg).map((p) =>
-        '<li style="grid-template-columns:1fr auto"><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + '</small></div><select class="mini" data-fgroup="' + p.id + '"' + (locked ? " disabled" : "") + ">" +
-        groups.map((_, gi) => '<option value="' + gi + '"' + (fg[p.id] === gi ? " selected" : "") + ">グループ" + GL[gi] + "</option>").join("") + "</select></li>").join("") + "</ul>";
-    }
+      "</div>";
+    const noSplit = locked || !nSel || !groups.length;
+    h += '<div class="btns"><button class="btn small" type="button" data-split="gender"' + (noSplit ? " disabled" : "") + ">男女均等に分ける</button>" +
+      '<button class="btn small" type="button" data-split="random"' + (noSplit ? " disabled" : "") + ">ランダムに分ける</button></div>";
     if (groups.length) {
       h += '<div style="display:flex;flex-direction:column;gap:8px">' + groups.map((g, gi) => {
         const fr = F.filter((p) => fg[p.id] === gi);
         const m = fr.filter((p) => p.gender === "男").length;
-        return '<div class="grp-h" style="border:1px solid var(--line);border-radius:10px"><span style="display:flex;gap:8px;align-items:center"><span class="gl">' + GL[gi] + '</span><span class="mf">1年 男' + m + "・女" + (fr.length - m) +
-          '</span></span><span style="display:flex;gap:8px;align-items:center"><span class="hint">新上級生</span><div class="stepper sm"><button type="button" data-need="' + gi + ':-1" aria-label="減らす"' + (locked ? " disabled" : "") + '>−</button><output class="num">' + (g.need || 0) +
-          '</output><button type="button" data-need="' + gi + ':1" aria-label="増やす"' + (locked ? " disabled" : "") + ">＋</button></div></span></div>";
+        return '<div class="grp"><div class="grp-h"><span style="display:flex;gap:8px;align-items:center"><span class="gl">' + GL[gi] + '</span><span class="mf">1年 ' + fr.length + "人（男" + m + "・女" + (fr.length - m) +
+          '）</span></span><span style="display:flex;gap:8px;align-items:center"><span class="hint">新上級生</span><div class="stepper sm"><button type="button" data-need="' + gi + ':-1" aria-label="減らす"' + (locked ? " disabled" : "") + '>−</button><output class="num">' + (g.need || 0) +
+          '</output><button type="button" data-need="' + gi + ':1" aria-label="増やす"' + (locked ? " disabled" : "") + ">＋</button></div></span></div>" +
+          '<div class="fnames">' + (fr.map((p) => "<span>" + esc(p.name) + '<span class="m">' + esc(p.gender) + "</span></span>").join("") || '<span class="hint">1年生がいません</span>') + "</div></div>";
       }).join("") + "</div>";
+      if (nSel && !locked) {
+        h += '<details><summary>1年生を手動で別のグループへ移す</summary><ul class="list" style="margin-top:6px">' + F.filter((p) => p.id in fg).map((p) =>
+          '<li style="grid-template-columns:1fr auto"><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + '</small></div><select class="mini" data-fgroup="' + p.id + '">' +
+          groups.map((_, gi) => '<option value="' + gi + '"' + (fg[p.id] === gi ? " selected" : "") + ">グループ" + GL[gi] + "</option>").join("") + "</select></li>").join("") + "</ul></details>";
+      }
     } else h += '<p class="hint">グループ数を1以上にしてください。</p>';
     h += "</div></section>";
 
@@ -413,6 +469,8 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       h += "</section>";
     }
 
+    h += commentsSection({ id, ...d });
+
     // 公開・終了
     h += '<section><h2>この日の操作</h2><div class="panel">';
     if (d.status === "draft") h += '<button class="btn yolk" type="button" data-status="published">この振り分けを部員に公開する</button><p class="hint">公開すると、ログインしていない部員にもこの日の担当が見えます。</p>';
@@ -423,6 +481,29 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       '<button class="btn danger" type="button" data-del-day>この日程を削除</button></div></section>';
     return h;
   }
+
+  // ---------- コメント（公開中は部員も書ける） ----------
+  function commentsSection(d) {
+    const list = dayComments(d.id);
+    const open = d.status === "published";
+    if (!open && !list.length) return "";
+    let h = '<section><h2>コメント <small>' + list.length + "件</small></h2>";
+    if (open) {
+      const byName = (a, b) => a.name.localeCompare(b.name, "ja");
+      const opt = (p) => '<option value="' + esc(p.name) + '">' + esc(p.name) + "</option>";
+      h += '<div class="panel"><label class="f">名前<select id="c-name"><option value="">選んでください</option>' +
+        '<optgroup label="新上級生">' + seniorsArr().sort(byName).map(opt).join("") + "</optgroup>" +
+        '<optgroup label="1年生">' + freshmenArr().sort(byName).map(opt).join("") + "</optgroup></select></label>" +
+        '<label class="f">内容<textarea id="c-text" maxlength="300" placeholder="例：都合が悪くなったので、グループAを〇〇さんに代わってもらいました"></textarea></label>' +
+        '<button class="btn primary" type="button" data-post-comment>コメントを送る</button></div>';
+    } else h += '<p class="hint">コメントできるのは公開中の日程だけです。</p>';
+    if (list.length) {
+      h += '<div class="grp">' + list.map((c) => '<div class="cmt"><div class="cmt-h"><span><b>' + esc(c.name) + "</b>　" + fmtTime(c.at) + "</span>" +
+        (canEdit ? '<button class="btn small danger" type="button" data-del-cmt="' + esc(c.id) + '">削除</button>' : "") + "</div><p>" + esc(c.text) + "</p></div>").join("") + "</div>";
+    }
+    return h + "</section>";
+  }
+  const fmtTime = (ms) => { const d = new Date(ms); return (d.getMonth() + 1) + "/" + d.getDate() + " " + d.getHours() + ":" + String(d.getMinutes()).padStart(2, "0"); };
 
   function moveSelect(sid, cur, n, locked) {
     let o = '<select class="mini" data-move="' + sid + '"' + (locked ? " disabled" : "") + ">";
@@ -499,6 +580,21 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     if (tab) { go({ tab: tab.dataset.tab, dayId: null }); return; }
     if (t.closest("#b-login")) { canEdit ? firebase.auth().signOut().then(() => toast("ログアウトしました")) : openLogin(); return; }
     if (t.closest("[data-back]")) { go({ dayId: null }); return; }
+    const pc = t.closest("[data-post-comment]");
+    if (pc && ui.dayId) {
+      const name = $("#c-name").value, text = $("#c-text").value.trim().slice(0, 300);
+      if (!name) { toast("名前を選んでください"); return; }
+      if (!text) { toast("内容を入力してください"); return; }
+      pc.disabled = true;
+      postComment(ui.dayId, name, text).then((ok) => {
+        if (ok) { const ta = $("#c-text"); if (ta) ta.value = ""; toast("コメントを送りました"); }
+        else toast("送れませんでした。公開中の日程か確認してください");
+        const b = $("[data-post-comment]"); if (b) b.disabled = false;
+      });
+      return;
+    }
+    const dc = t.closest("[data-del-cmt]");
+    if (dc && canEdit) { if (armed(dc, "もう一度押すと削除")) deleteComment(dc.dataset.delCmt); return; }
     if (t.closest("[data-copy-link]")) {
       const url = location.href;
       (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject())
@@ -519,11 +615,25 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     if (gc) { updDay((d) => setGroupCount(d, (d.groups || []).length + Number(gc.dataset.gcount))); return; }
     const nd = t.closest("[data-need]");
     if (nd) { const [gi, dv] = nd.dataset.need.split(":").map(Number); updDay((d) => { d.groups[gi].need = Math.max(0, Math.min(20, (d.groups[gi].need || 0) + dv)); }); return; }
-    if (t.closest("[data-split]")) {
+    const sp = t.closest("[data-split]");
+    if (sp) {
+      const random = sp.dataset.split === "random";
       updDay((d, s) => {
         const fr = Object.keys(d.fGroup || {}).map((id) => s.freshmen[id] && { id, ...s.freshmen[id] }).filter(Boolean);
-        d.fGroup = L.splitFreshmen(fr, d.groups.length);
-      }, "1年生をグループに分けました");
+        d.fGroup = random ? L.randomSplit(fr, d.groups.length) : L.splitFreshmen(fr, d.groups.length);
+      }, random ? "1年生をランダムに分けました" : "1年生を男女均等に分けました");
+      return;
+    }
+    const af = t.closest("[data-all-f]");
+    if (af) {
+      const on = af.dataset.allF === "1";
+      updDay((d, s) => {
+        d.fGroup = d.fGroup || {};
+        if (on) {
+          if (!(d.groups || []).length) setGroupCount(d, 1);
+          Object.keys(s.freshmen).forEach((id) => { if (!(id in d.fGroup)) d.fGroup[id] = 0; });
+        } else d.fGroup = {};
+      }, on ? "1年生を全員選びました" : "1年生の選択を外しました");
       return;
     }
     if (t.closest("[data-auto]")) { let msg; updDay((d, s) => { msg = autoAssign(d, s); }).then((ok) => ok && toast(msg)); return; }

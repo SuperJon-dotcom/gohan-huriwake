@@ -118,6 +118,14 @@
     return out;
   }
 
+  // 1年生をランダムにグループへ分ける（人数は均等）。戻り値 {id: グループ番号}
+  function randomSplit(freshmen, k) {
+    const out = {};
+    const start = Math.floor(Math.random() * k);
+    shuffle(freshmen).forEach((p, i) => { out[p.id] = (start + i) % k; });
+    return out;
+  }
+
   // ご飯会後のポイント反映
   // 行った人: 回数+1、ポイント = 100 + 回数×50
   // 行かなかった人: ポイント -= (全員の最大回数 − 自分の回数 + 1) × 15
@@ -136,7 +144,7 @@
     return { next, before };
   }
 
-  const api = { byPriority, selectSeniors, groupCost, distribute, groupWarnings, splitFreshmen, applyMeal };
+  const api = { byPriority, selectSeniors, groupCost, distribute, groupWarnings, splitFreshmen, randomSplit, applyMeal };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.GohanLogic = api;
 })(this);
