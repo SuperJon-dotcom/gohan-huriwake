@@ -96,6 +96,8 @@ h2 .step { font-family: var(--f-num); color: var(--yolk-ink); background: var(--
 .chip.g3 { background: var(--g3-bg); color: var(--g3-ink); }
 .chip.g4 { background: var(--g4-bg); color: var(--g4-ink); }
 .chip.fm { background: var(--ink); color: var(--bg); }
+.chip.joke { background: var(--warn-soft); color: var(--warn); }
+.joke-by { color: var(--warn); font-weight: 700; margin-left: 2px; }
 .names em.g1 { color: var(--g1-ink); } .names em.g2 { color: var(--g2-ink); } .names em.g3 { color: var(--g3-ink); } .names em.g4 { color: var(--g4-ink); }
 .chip.dev { margin-left: 6px; margin-right: 0; font-family: ui-monospace, monospace; }
 .chip.ng { background: var(--warn-soft); color: var(--warn); }
@@ -192,6 +194,9 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
 .scrim { position: fixed; inset: 0; background: rgba(10,14,24,.45); z-index: 20; display: flex; align-items: flex-end; justify-content: center; }
 .sheet { background: var(--surface); width: 100%; max-width: 560px; border-radius: 18px 18px 0 0; display: flex; flex-direction: column; gap: 14px;
   padding-top: 18px; padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px)); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); max-height: 90%; overflow-y: auto; }
+/* 中身が長いときに各ブロックが縦に押しつぶされないようにする（スマホでコメント履歴が最後まで見られなかった） */
+.sheet > * { flex-shrink: 0; }
+.sheet { max-height: 90dvh; overscroll-behavior: contain; }
 .sheet h3 { margin: 0; font-family: var(--f-display); font-weight: 400; font-size: 20px; }
 .rc { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; border-top: 1px solid var(--line); }
 .rc:first-child { border-top: 0; }
@@ -283,6 +288,8 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     if (Store.mode === "local") {
       // ?viewer を付けると部員から見た画面を確認できる
       canEdit = !/[?&]viewer\b/.test(location.search);
+      // 部員の画面でもログイン画面（おふざけモードの確認用）を開けるようにする
+      if (!canEdit) $("#b-login").hidden = false;
       // 共有したときのプレビューに出ないよう、文言はHTMLに書かずにここで入れる
       $("#banner").textContent = "テストモード：データはこの端末にだけ保存されます";
       $("#banner").hidden = false;
@@ -308,7 +315,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     Store.ref.collection("comments").onSnapshot((snap) => {
       remoteComments = snap.docs.map((doc) => {
         const x = doc.data({ serverTimestamps: "estimate" });
-        return { id: doc.id, dayId: x.dayId, name: x.name, text: x.text, uid: x.uid || null, pid: x.pid || null, deletedAt: x.deletedAt || null, at: x.at && x.at.toMillis ? x.at.toMillis() : Date.now() };
+        return { id: doc.id, dayId: x.dayId, name: x.name, text: x.text, uid: x.uid || null, pid: x.pid || null, by: x.by || null, joke: !!x.joke, deletedAt: x.deletedAt || null, at: x.at && x.at.toMillis ? x.at.toMillis() : Date.now() };
       });
       if (!first && canEdit) {
         const added = snap.docChanges().filter((c) => c.type === "added" && !c.doc.metadata.hasPendingWrites);
@@ -334,10 +341,14 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     });
     editorApp = firebase.initializeApp(window.FIREBASE_CONFIG, "editor");
     const editorRef = editorApp.firestore().doc("spaces/" + key);
+    let jokerOff = null;
     editorApp.auth().onAuthStateChanged((u) => {
       canEdit = !!u && !u.isAnonymous;
       // 書き込みは、編集中なら編集者として、そうでなければ部員（匿名）として行う
       Store.ref = canEdit ? editorRef : memberRef;
+      // おふざけモードの記録は編集者だけが読める
+      if (canEdit && !jokerOff) jokerOff = editorRef.collection("jokers").onSnapshot((snap) => { remoteJokers = toMap(snap); render(); }, (e) => console.error(e));
+      if (!canEdit && jokerOff) { jokerOff(); jokerOff = null; remoteJokers = {}; }
       render();
     });
     $("#b-login").hidden = false;
@@ -430,18 +441,105 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     error: "送れませんでした。公開中の日程か確認してください",
   };
 
+  // ================= おふざけモード =================
+  // 特定のメールアドレスとパスワードで、他の部員になりすましてコメントできる。
+  // 合言葉そのものはプログラムに書かず、ハッシュをFirestoreのルールの中だけで照合する（テストモードは下の仮の合言葉）
+  // jokers/{uid} = {pid, name, key, at（初めてのログイン）, lastAt}。全体の禁止は jokeOff、端末ごとの禁止は jokeBlocked
+  const DEV_JOKE = { mail: "joke@test.local", pass: "ofuzake" };
+  const jokeWaitMs = () => (onDevHost && /[?&]jokefast\b/.test(location.search) ? 0 : 22 * 3600 * 1000);
+  let remoteJokers = {};
+  const jokersMap = () => (Store.mode === "local" ? state.jokers || {} : remoteJokers);
+  const jokeBlockedMap = () => state.jokeBlocked || {};
+  async function sha256hex(s) {
+    const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+    return Array.from(new Uint8Array(b)).map((x) => x.toString(16).padStart(2, "0")).join("");
+  }
+  const jokeKeyOf = (mail, pass) => sha256hex("gohan-joke\n" + mail.trim().toLowerCase() + "\n" + pass);
+  const jokeFlag = () => "gohan-joke:" + myUid();
+  function setJoke(on) { try { on ? localStorage.setItem(jokeFlag(), "1") : localStorage.removeItem(jokeFlag()); } catch (e) {} }
+  // 名前を登録して22時間以上たち、どこからも止められていない端末だけ
+  function jokeEligible() {
+    const me = myUid(), o = me && ownersMap()[me];
+    if (canEdit || !o || !myPerson()) return false;
+    if (state.jokeOff || jokeBlockedMap()[me] || blockedMap()[me]) return false;
+    return tsMs(o.at) > 0 && Date.now() - tsMs(o.at) >= jokeWaitMs();
+  }
+  function jokeActive() {
+    let on = false;
+    try { on = localStorage.getItem(jokeFlag()) === "1"; } catch (e) {}
+    const me = myUid();
+    return on && !canEdit && !!myPerson() && !state.jokeOff && !jokeBlockedMap()[me] && !blockedMap()[me];
+  }
+  // 合言葉が合っていれば true。違う・条件を満たさないときは false（編集ログインとして続けて試す）
+  async function tryJoke(mail, pass) {
+    if (!jokeEligible()) return false;
+    const key = await jokeKeyOf(mail, pass), me = myUid(), p = myPerson();
+    if (Store.mode === "local") {
+      if (key !== (await jokeKeyOf(DEV_JOKE.mail, DEV_JOKE.pass))) return false;
+      const ok = await save((s) => {
+        s.jokers = s.jokers || {};
+        if (s.jokers[me]) s.jokers[me].lastAt = Date.now();
+        else s.jokers[me] = { pid: p.id, name: p.name, key, at: Date.now(), lastAt: Date.now() };
+      });
+      if (ok) setJoke(true);
+      return ok;
+    }
+    const ref = Store.ref.collection("jokers").doc(me), ts = firebase.firestore.FieldValue.serverTimestamp();
+    try {
+      const snap = await ref.get();
+      if (snap.exists) await ref.update({ key, lastAt: ts });
+      else await ref.set({ pid: p.id, name: p.name, key, at: ts, lastAt: ts });
+      setJoke(true);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // 編集者は合言葉なしで、この端末の部員の名前のままおふざけモードに入れる（編集ログインは終える）。
+  // 記録には byEditor を付け、ルールはそれを合言葉の代わりに認める（合言葉もそのハッシュもプログラムには書かない）
+  async function enterJokeAsEditor() {
+    const me = myUid(), p = myPerson();
+    if (!me || !p) { toast("先に画面上部の「名前を決める」で、この端末の名前を決めてください"); return; }
+    if (state.jokeOff) { toast("おふざけモードは全体で禁止中です"); return; }
+    if (jokeBlockedMap()[me] || blockedMap()[me]) { toast("この端末はおふざけモードを禁止されています"); return; }
+    if (Store.mode === "local") {
+      const ok = await save((s) => {
+        s.jokers = s.jokers || {};
+        if (s.jokers[me]) s.jokers[me].lastAt = Date.now();
+        else s.jokers[me] = { pid: p.id, name: p.name, key: "editor", byEditor: true, at: Date.now(), lastAt: Date.now() };
+      });
+      if (!ok) return;
+      setJoke(true);
+      // テストモードは ?viewer で部員の画面に切り替える
+      location.search = location.search ? location.search + "&viewer" : "?viewer";
+      return;
+    }
+    try {
+      const ref = Store.ref.collection("jokers").doc(me), ts = firebase.firestore.FieldValue.serverTimestamp();
+      const snap = await ref.get();
+      if (snap.exists) await ref.update({ lastAt: ts, byEditor: true });
+      else await ref.set({ pid: p.id, name: p.name, key: "editor", byEditor: true, at: ts, lastAt: ts });
+      setJoke(true);
+      await editorAuth().signOut();
+      toast("おふざけモード ON（編集ログインは終了しました）");
+    } catch (e) { console.error(e); toast("おふざけモードに入れませんでした"); }
+  }
+
   // 戻り値: ok / noauth / nologin / blocked / error
   async function postComment(dayId, pid, text) {
-    if (!canEdit) pid = myPerson() && myPerson().id;
+    // おふざけ中は選んだ人の名前で書ける（本当の書き手は by に残す）
+    const mine = myPerson() && myPerson().id;
+    const joke = !canEdit && jokeActive() && pid && pid !== mine && !!people()[pid];
+    if (!canEdit && !joke) pid = mine;
     const bad = postCheck(pid);
     if (bad) return bad;
     const me = myUid(), name = people()[pid].name;
+    const extra = joke ? { by: mine, joke: true } : {};
     if (Store.mode === "local") {
-      const ok = await save((s) => { s.comments = s.comments || {}; s.comments[uid()] = { dayId, name, text, uid: me, pid, at: Date.now() }; });
+      const ok = await save((s) => { s.comments = s.comments || {}; s.comments[uid()] = Object.assign({ dayId, name, text, uid: me, pid, at: Date.now() }, extra); });
       return ok ? "ok" : "error";
     }
     try {
-      await Store.ref.collection("comments").add({ dayId, name, text, uid: me, pid, at: firebase.firestore.FieldValue.serverTimestamp() });
+      await Store.ref.collection("comments").add(Object.assign({ dayId, name, text, uid: me, pid, at: firebase.firestore.FieldValue.serverTimestamp() }, extra));
       return "ok";
     } catch (e) { console.error(e); return "error"; }
   }
@@ -521,10 +619,10 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
   async function collectRemote(ref) {
     // owners / names はルールが古いと読めないので、読めなければ空として扱う
     const opt = (q) => q.get().catch(() => ({ forEach() {} }));
-    const [main, cs, rs, os, ns] = await Promise.all([ref.get(), ref.collection("comments").get(), ref.collection("receipts").get(),
-      opt(ref.collection("owners")), opt(ref.collection("names"))]);
-    const plain = (doc) => { const x = doc.data(); if (x.at && x.at.toMillis) x.at = x.at.toMillis(); return x; };
-    const out = { app: "gohan-huriwake", version: 1, savedAt: Date.now(), main: main.exists ? main.data() : empty(), comments: {}, receipts: {}, owners: {}, names: {} };
+    const [main, cs, rs, os, ns, js] = await Promise.all([ref.get(), ref.collection("comments").get(), ref.collection("receipts").get(),
+      opt(ref.collection("owners")), opt(ref.collection("names")), opt(ref.collection("jokers"))]);
+    const plain = (doc) => { const x = doc.data(); Object.keys(x).forEach((k) => { if (x[k] && x[k].toMillis) x[k] = x[k].toMillis(); }); return x; };
+    const out = { app: "gohan-huriwake", version: 1, savedAt: Date.now(), main: main.exists ? main.data() : empty(), comments: {}, receipts: {}, owners: {}, names: {}, jokers: {} };
     cs.forEach((d) => { out.comments[d.id] = plain(d); });
     rs.forEach((d) => { out.receipts[d.id] = plain(d); });
     os.forEach((d) => { out.owners[d.id] = plain(d); });
@@ -533,8 +631,8 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
   }
   async function collectBackup() {
     if (Store.mode !== "local") return collectRemote(Store.ref);
-    const { comments, receipts, owners, names, ...main } = clone(state);
-    return { app: "gohan-huriwake", version: 1, savedAt: Date.now(), main, comments: comments || {}, receipts: receipts || {}, owners: owners || {}, names: names || {} };
+    const { comments, receipts, owners, names, jokers, ...main } = clone(state);
+    return { app: "gohan-huriwake", version: 1, savedAt: Date.now(), main, comments: comments || {}, receipts: receipts || {}, owners: owners || {}, names: names || {}, jokers: jokers || {} };
   }
   function stamp(t) {
     const d = new Date(t), p = (n) => String(n).padStart(2, "0");
@@ -558,6 +656,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
         s.receipts = Object.assign(s.receipts || {}, b.receipts || {});
         s.owners = Object.assign(s.owners || {}, b.owners || {});
         s.names = Object.assign(s.names || {}, b.names || {});
+        s.jokers = Object.assign(s.jokers || {}, b.jokers || {});
       });
     }
     const ts = (x) => Object.assign({}, x, { at: firebase.firestore.Timestamp.fromMillis(Number(x.at) || Date.now()) });
@@ -565,6 +664,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     await Promise.all(Object.entries(b.comments || {}).map(([id, c]) => Store.ref.collection("comments").doc(id).set(ts(c))));
     await Promise.all(Object.entries(b.owners || {}).map(([id, o]) => Store.ref.collection("owners").doc(id).set(ts(o))));
     await Promise.all(Object.entries(b.names || {}).map(([id, n]) => Store.ref.collection("names").doc(id).set(ts(n))));
+    await Promise.all(Object.entries(b.jokers || {}).map(([id, j]) => Store.ref.collection("jokers").doc(id).set(ts(j))));
     for (const [id, r] of Object.entries(b.receipts || {})) await Store.ref.collection("receipts").doc(id).set(ts(r));
     return true;
   }
@@ -577,7 +677,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     rcUrls.clear();
     return save((s) => {
       Object.keys(s).forEach((k) => delete s[k]);
-      Object.assign(s, normalize(b.main), { comments: b.comments, receipts: b.receipts, owners: b.owners, names: b.names });
+      Object.assign(s, normalize(b.main), { comments: b.comments, receipts: b.receipts, owners: b.owners, names: b.names, jokers: b.jokers });
     }, "本番のデータを取り込みました");
   }
   // 描画のたびに大きな data URL を流し込まないよう、画像は一度だけ blob URL にしておく
@@ -681,10 +781,12 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     role.classList.toggle("edit", canEdit);
     const bar = $("#mebar");
     const showBar = ready && !noKey && idReady && myUid();
-    bar.hidden = !showBar || (meP && !blockedMap()[myUid()]);
+    const joking = showBar && jokeActive();
+    bar.hidden = !showBar || (meP && !blockedMap()[myUid()] && !joking);
     if (showBar && !meP) bar.innerHTML = "<span>" + (canEdit ? "この端末の部員としての名前がまだありません" : "未ログイン：名前を決めるとコメントや領収書を使えます") +
       '</span><button class="btn small" type="button" data-choose>名前を決める</button>';
-    else if (showBar && meP) bar.innerHTML = "<span>この端末からはコメントや領収書を送れません</span>";
+    else if (showBar && meP && blockedMap()[myUid()]) bar.innerHTML = "<span>この端末からはコメントや領収書を送れません</span>";
+    else if (joking) bar.innerHTML = '<span>おふざけモード中：コメントの名前を選べます</span><button class="btn small" type="button" data-joke-exit>終了</button>';
     const lb = $("#b-login");
     if (Store.mode === "firebase") lb.textContent = canEdit ? "ログアウト" : "編集ログイン";
 
@@ -776,6 +878,14 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
         '<button class="btn" type="button" data-backup>バックアップを保存</button>' +
         '<label class="btn" style="text-align:center">バックアップから復元<input type="file" id="restore-file" accept=".json,application/json" hidden></label>' +
         '<p class="hint">復元すると、日程とメンバーはファイルを保存した時点に戻り、消してしまったコメント・領収書も戻ります。後から増えたコメント・領収書は消えません。復元の直前に、今の状態も自動でバックアップします。</p>' +
+        "</div></section>";
+      const nJoke = Object.keys(jokersMap()).length;
+      h += '<section><h2>おふざけモード <small>ログインした人 ' + nJoke + "人</small></h2><div class=\"panel\">" +
+        "<p><b>" + (state.jokeOff ? "全体で禁止中" : "許可中") + "</b></p>" +
+        '<p class="hint">' + (state.jokeOff ? "今は誰もおふざけモードを使えません。" : "名前を登録して22時間たった部員は、合言葉でおふざけモードに入れます。") + "</p>" +
+        '<button class="btn' + (state.jokeOff ? "" : " danger") + '" type="button" data-joke-global>' + (state.jokeOff ? "おふざけモードを許可する" : "おふざけモードを全体で禁止する") + "</button>" +
+        '<button class="btn" type="button" data-joke-enter' + (state.jokeOff ? " disabled" : "") + ">おふざけモードに移行する</button>" +
+        '<p class="hint">メールアドレスとパスワードを入れずに、この端末の部員の名前でおふざけモードに入ります。編集ログインは終了します。</p>' +
         "</div></section>";
     }
     return h;
@@ -906,9 +1016,14 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     return '<select id="' + id + '"><option value="">選んでください</option>' + opts + "</select>";
   }
   // 投稿欄の名前。部員はログイン中の名前を表示、編集者は代理で誰の名前でも選べる
-  function meField(id) {
+  function meField(id, allowJoke) {
     if (canEdit) return '<label class="f">名前（代理で送る）' + nameSelect(id) + "</label>";
     const p = myPerson();
+    // おふざけ中はコメントの名前を選べる（最初は自分）
+    if (allowJoke && jokeActive()) {
+      const sel = nameSelect(id).replace('<option value="' + esc(p.id) + '"', '<option value="' + esc(p.id) + '" selected');
+      return '<label class="f">名前（おふざけ中）' + sel + "</label>";
+    }
     return '<div class="f">名前<div class="fixed-name"><b>' + esc(p.name) + "</b><small>" + gradeChip(p.grade) + "この端末でログイン中</small></div></div>";
   }
   // 部員がまだ書けないときに投稿欄の代わりに出す案内。書けるなら ""
@@ -991,13 +1106,13 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     if (!open) h += '<p class="hint">コメントできるのは公開中の日程だけです。</p>';
     else if (gate) h += gate;
     else {
-      h += '<div class="panel">' + meField("c-name") +
+      h += '<div class="panel">' + meField("c-name", true) +
         '<label class="f">内容<textarea id="c-text" maxlength="300" placeholder="欠席連絡はこちら。交代など当日の連絡は担当のメンバーが確定してから共有してください。"></textarea></label>' +
         '<button class="btn primary" type="button" data-post-comment>コメントを送る</button></div>';
     }
     const pp = people();
     if (list.length) {
-      h += '<div class="grp">' + list.map((c) => '<div class="cmt"><div class="cmt-h"><span><b>' + esc(authorName(c, pp)) + "</b>" + (canEdit ? deviceTag(c, pp) : "") + "　" + fmtTime(c.at) + "</span>" +
+      h += '<div class="grp">' + list.map((c) => '<div class="cmt"><div class="cmt-h"><span><b>' + esc(authorName(c, pp)) + (canEdit ? jokeBy(c, pp) : "") + "</b>" + (canEdit ? deviceTag(c, pp) : "") + "　" + fmtTime(c.at) + "</span>" +
         (canEdit ? '<button class="btn small danger" type="button" data-del-cmt="' + esc(c.id) + '">削除</button>' : "") + "</div><p>" + esc(c.text) + "</p></div>").join("") + "</div>";
     }
     h += trashBox("comments", trash, (c) => "<p>" + esc(c.text) + "</p>");
@@ -1009,7 +1124,13 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     const own = ownersMap()[c.uid];
     const ownP = own && (pp || people())[own.pid];
     return '<span class="chip dev' + (blockedMap()[c.uid] ? " ng" : "") + '">端末 ' + devCode(c.uid) + (blockedMap()[c.uid] ? "・ブロック中" : "") + "</span>" +
-      (ownP && c.pid && c.pid !== own.pid ? '<span class="chip dev ng">ログイン名：' + esc(ownP.name) + "</span>" : "");
+      (ownP && c.pid && c.pid !== own.pid && !c.joke ? '<span class="chip dev ng">ログイン名：' + esc(ownP.name) + "</span>" : "");
+  }
+  // 編集者向け: おふざけモードのコメントは（本当の書き手）を添える
+  function jokeBy(c, pp) {
+    if (!c.joke) return "";
+    const by = (pp || people())[c.by];
+    return '<span class="joke-by">（' + esc(by ? by.name : "不明") + "）</span>";
   }
 
   // ---------- 部員リスト（編集者） ----------
@@ -1018,6 +1139,12 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
   // その部員がログインしている端末 {uid, at}（なければ null）
   const loginOf = (pid) => { const n = namesMap()[pid]; return n && n.uid ? n : null; };
   const commentsOf = (p, all) => (all || allComments()).filter((c) => (c.pid ? c.pid === p.id : c.name === p.name)).sort((a, b) => b.at - a.at);
+  // その部員がおふざけモードにログインした記録 {uid, at, lastAt}（なければ null）
+  function jokerOf(pid) {
+    const e = Object.entries(jokersMap()).find(([, j]) => j.pid === pid);
+    return e ? Object.assign({ uid: e[0] }, e[1]) : null;
+  }
+  const jokeChip = (pid) => { const j = jokerOf(pid); return j ? '<span class="chip joke">おふざけ' + (jokeBlockedMap()[j.uid] ? "・禁止中" : "") + "</span>" : ""; };
 
   function membersView() {
     const g = ui.memGrade || "all";
@@ -1033,7 +1160,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     h += '<section><h2>部員一覧 <small>' + list.length + "人（ログイン済み " + nLogin + "人）</small></h2>" + filter + '<ul class="list">' +
       (list.length ? list.map((p) => {
         const lg = loginOf(p.id), bl = lg && blockedMap()[lg.uid];
-        return '<li class="tap" data-member="' + esc(p.id) + '" tabindex="0" role="button" style="grid-template-columns:1fr auto"><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) +
+        return '<li class="tap" data-member="' + esc(p.id) + '" tabindex="0" role="button" style="grid-template-columns:1fr auto"><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + jokeChip(p.id) +
           (lg ? '<span class="chip dev' + (bl ? " ng" : "") + '">端末 ' + devCode(lg.uid) + (bl ? "・ブロック中" : "") + "</span>" : '<span class="chip">未ログイン</span>') +
           '</small></div><div class="pt">' + commentsOf(p, all).length + "<small>件</small></div></li>";
       }).join("") : '<li class="blank">この学年の部員はいません。</li>') + "</ul></section>";
@@ -1100,6 +1227,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     const lg = loginOf(pid);
     const bl = lg && blockedMap()[lg.uid];
     const cs = commentsOf(p);
+    const jk = jokerOf(pid), jkBl = jk && jokeBlockedMap()[jk.uid];
     const dayName = (id) => (state.days[id] ? fmtDate(state.days[id].date) : "削除した日程");
     sheet("<h3>" + esc(p.name) + "</h3>" +
       '<label class="f">名前<input type="text" id="x-name" maxlength="30" value="' + esc(p.name) + '"></label>' +
@@ -1113,8 +1241,13 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
           (bl ? '<button class="btn" type="button" id="x-unblock">ブロック解除</button>' : '<button class="btn danger" type="button" id="x-block">ブロック</button>') + "</div>" +
           '<p class="hint">ログインを解除すると、名前を選び直せるようになります（機種変更のときなど）。ブロックすると、この端末からはコメントも領収書も送れなくなります。</p>'
         : '<p class="hint">まだどの端末からもログインしていません。</p>') +
+      (jk ? '<h3 class="sub-h">おふざけモード</h3>' +
+          "<p>初めてのログイン：" + (tsMs(jk.at) ? fmtTime(tsMs(jk.at)) : "—") + (tsMs(jk.lastAt) ? "　最後：" + fmtTime(tsMs(jk.lastAt)) : "") +
+          (jkBl ? '・<b class="ng-t">禁止中</b>' : "") + "</p>" +
+          (jkBl ? '<button class="btn" type="button" id="x-joke-unblock">おふざけモードの禁止を解除</button>' : '<button class="btn danger" type="button" id="x-joke-block">この人のおふざけモードを禁止</button>')
+        : "") +
       '<h3 class="sub-h">コメントの履歴（' + cs.length + "件）</h3>" +
-      (cs.length ? '<div class="grp">' + cs.map((c) => '<div class="cmt"><div class="cmt-h"><span><b>' + dayName(c.dayId) + "</b>　" + fmtTime(c.at) +
+      (cs.length ? '<div class="grp">' + cs.map((c) => '<div class="cmt"><div class="cmt-h"><span><b>' + dayName(c.dayId) + "</b>" + jokeBy(c) + "　" + fmtTime(c.at) +
           (c.uid ? '<span class="chip dev">端末 ' + devCode(c.uid) + "</span>" : "") + (c.deletedAt ? '<span class="chip dev ng">ゴミ箱</span>' : "") + "</span>" +
           (c.deletedAt
             ? '<span style="display:flex;gap:6px"><button class="btn small" type="button" data-trash="comments:' + esc(c.id) + ':restore">元に戻す</button><button class="btn small danger" type="button" data-trash="comments:' + esc(c.id) + ':purge">完全に削除</button></span>'
@@ -1134,6 +1267,13 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       if (rel) rel.onclick = (e) => { if (armed(e.currentTarget, "もう一度押すと解除")) releaseOwner(lg.uid).then(close); };
       if (blk) blk.onclick = (e) => { if (armed(e.currentTarget, "もう一度押すとブロック")) setBlocked(lg.uid, true).then(close); };
       if (ubl) ubl.onclick = () => setBlocked(lg.uid, false).then(close);
+      const jb = $("#x-joke-block"), ju = $("#x-joke-unblock");
+      const setJokeBlock = (on) => save((s) => {
+        s.jokeBlocked = s.jokeBlocked || {};
+        if (on) s.jokeBlocked[jk.uid] = { name: p.name, at: Date.now() }; else delete s.jokeBlocked[jk.uid];
+      }, on ? p.name + " さんのおふざけモードを禁止しました" : "おふざけモードの禁止を解除しました").then(close);
+      if (jb) jb.onclick = (e) => { if (armed(e.currentTarget, "もう一度押すと禁止")) setJokeBlock(true); };
+      if (ju) ju.onclick = () => setJokeBlock(false);
       $("#x-del").onclick = (e) => { if (armed(e.currentTarget, "もう一度押すと削除します")) deletePerson(pid).then((ok) => ok && close()); };
       // 履歴のコメントを削除・復元したら、この画面を開き直して最新にする
       $("#scrim .sheet").addEventListener("click", (e) => {
@@ -1279,6 +1419,13 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     }
     if (t.closest("[data-choose]")) { openChooser(); return; }
     if (t.closest("#b-help")) { openHelp(); return; }
+    if (t.closest("[data-joke-exit]")) { setJoke(false); render(); toast("おふざけモードを終了しました"); return; }
+    if (t.closest("[data-joke-enter]") && canEdit) { enterJokeAsEditor(); return; }
+    if (t.closest("[data-joke-global]") && canEdit) {
+      const off = !state.jokeOff;
+      save((s) => { s.jokeOff = off; }, off ? "おふざけモードを禁止しました" : "おふざけモードを許可しました");
+      return;
+    }
     const memg = t.closest("[data-memg]");
     if (memg) { ui.memGrade = memg.dataset.memg; render(); return; }
     const mem = t.closest("[data-member]");
@@ -1613,9 +1760,14 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       '<div class="btns"><button class="btn" type="button" data-close>閉じる</button><button class="btn primary" type="submit">ログイン</button></div></form>', (close) => {
       $("#x-login").addEventListener("submit", (e) => {
         e.preventDefault(); e.stopPropagation();
-        editorAuth().signInWithEmailAndPassword($("#x-mail").value.trim(), $("#x-pass").value)
-          .then(() => { close(); toast("ログインしました"); })
-          .catch(() => toast("メールアドレスかパスワードが違います"));
+        const mail = $("#x-mail").value.trim(), pass = $("#x-pass").value;
+        // おふざけモードの合言葉なら編集ログインはしない。違えば（条件を満たさないときも）普通の編集ログインとして試す
+        tryJoke(mail, pass).then((joke) => {
+          if (joke) { close(); toast("おふざけモード ON"); render(); return; }
+          if (Store.mode === "local") { toast("メールアドレスかパスワードが違います"); return; }
+          return editorAuth().signInWithEmailAndPassword(mail, pass)
+            .then(() => { close(); toast("ログインしました"); });
+        }).catch(() => toast("メールアドレスかパスワードが違います"));
       });
     });
   }
