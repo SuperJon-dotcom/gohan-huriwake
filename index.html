@@ -794,6 +794,9 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     role.classList.toggle("edit", canEdit);
     const bar = $("#mebar");
     const showBar = ready && !noKey && idReady && myUid();
+    // 全体で禁止されたり、この端末が禁止・ブロックされたりしたら、おふざけモードは強制的に終了する
+    // （あとで許可し直しても自動では戻らず、もう一度合言葉が必要）
+    if (showBar && !canEdit && (state.jokeOff || jokeBlockedMap()[myUid()] || blockedMap()[myUid()])) setJoke(false);
     const joking = showBar && jokeActive();
     document.documentElement.classList.toggle("joke", !!joking);
     bar.hidden = !showBar || (meP && !blockedMap()[myUid()] && !joking);
@@ -1102,7 +1105,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     const pp = people();
     return '<details data-k="trash-' + kind + '" style="margin-top:10px"><summary>ゴミ箱（' + items.length + "件）</summary>" +
       '<p class="hint">部員には見えていません。「元に戻す」で一覧に戻ります。</p><div class="grp">' +
-      items.map((x) => '<div class="rc"><div class="cmt-h"><span><b>' + esc(authorName(x, pp)) + "</b>　" + fmtTime(x.at) + "</span>" +
+      items.map((x) => '<div class="rc"><div class="cmt-h"><span><b>' + esc(authorName(x, pp)) + jokeBy(x, pp) + "</b>　" + fmtTime(x.at) + "</span>" +
         '<span style="display:flex;gap:6px"><button class="btn small" type="button" data-trash="' + kind + ":" + esc(x.id) + ':restore">元に戻す</button>' +
         '<button class="btn small danger" type="button" data-trash="' + kind + ":" + esc(x.id) + ':purge">完全に削除</button></span></div>' + body(x) + "</div>").join("") +
       "</div></details>";
