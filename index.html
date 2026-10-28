@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
 <title>ごはんふりわけ</title>
+<meta name="description" content="競技舞踏のたのしいごはん会">
+<meta property="og:title" content="ごはんふりわけ">
+<meta property="og:description" content="競技舞踏のたのしいごはん会">
+<meta property="og:type" content="website">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@500&display=swap">
 <script>
@@ -46,6 +50,22 @@ h1 { font-family: var(--f-display); font-weight: 400; font-size: 19px; margin: 0
 .hdr-r { display: flex; gap: 8px; align-items: center; }
 .role { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; background: var(--line); color: var(--muted); white-space: nowrap; }
 .role.edit { background: var(--yolk-soft); color: var(--yolk-ink); }
+.btn.help { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.btn.help svg { width: 16px; height: 16px; flex: none; }
+h1 { white-space: nowrap; }
+.role { max-width: 9em; overflow: hidden; text-overflow: ellipsis; }
+/* スマホではヘッダーに タイトル・使い方・名前・編集ログイン が並ぶので詰める */
+@media (max-width: 430px) {
+  header.top .wrap { gap: 6px; flex-wrap: wrap; row-gap: 6px; }
+  h1 { font-size: 15px; }
+  .hdr-r { gap: 5px; margin-left: auto; }
+  .hdr-r .btn.small { padding: 0 8px; font-size: 12px; min-height: 32px; }
+  .role { font-size: 11px; padding: 3px 7px; max-width: 8em; }
+}
+.howto { display: flex; flex-direction: column; gap: 12px; }
+.howto h4 { margin: 4px 0 0; font-size: 14px; }
+.howto ol, .howto ul { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 6px; }
+.howto li { line-height: 1.6; }
 .banner { background: var(--yolk-soft); color: var(--yolk-ink); font-size: 12px; font-weight: 700; text-align: center; padding: 6px 16px; }
 main .wrap { display: flex; flex-direction: column; gap: 26px; padding-block: 20px calc(96px + env(safe-area-inset-bottom, 0px)); }
 section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
@@ -176,11 +196,12 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
 <header class="top"><div class="wrap">
   <h1>ごはんふりわけ</h1>
   <div class="hdr-r">
+    <button class="btn small help" id="b-help" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M9.3 9.2a2.8 2.8 0 0 1 5.4 1c0 1.9-2.7 2.4-2.7 4"/><circle cx="12" cy="17.4" r=".6" fill="currentColor"/></svg>使い方</button>
     <span class="role" id="role">読み込み中</span>
     <button class="btn small" id="b-login" type="button" hidden>編集ログイン</button>
   </div>
 </div></header>
-<div class="banner" id="banner" hidden>テストモード：データはこの端末にだけ保存されます</div>
+<div class="banner" id="banner" hidden></div>
 <div class="mebar" id="mebar" hidden></div>
 
 <main><div class="wrap" id="view"></div></main>
@@ -215,6 +236,8 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
   // 自分のPC（localhost）で開いたときは本番のデータに触れないテストモードにする
   const onDevHost = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
   const Store = { mode: window.FIREBASE_CONFIG && !onDevHost ? "firebase" : "local", ref: null };
+  let editorApp = null;
+  const editorAuth = () => editorApp.auth();
 
   function normalize(d) {
     const s = Object.assign(empty(), d || {});
@@ -249,6 +272,8 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     if (Store.mode === "local") {
       // ?viewer を付けると部員から見た画面を確認できる
       canEdit = !/[?&]viewer\b/.test(location.search);
+      // 共有したときのプレビューに出ないよう、文言はHTMLに書かずにここで入れる
+      $("#banner").textContent = "テストモード：データはこの端末にだけ保存されます";
       $("#banner").hidden = false;
       // PCで共有リンクの鍵（#以降）付きで開いたときは、本番のデータを読み込むボタンを出す
       if (onDevHost && canEdit && window.FIREBASE_CONFIG && location.hash.length > 1)
@@ -287,10 +312,21 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     const idSnap = (k, set) => (snap) => { set(toMap(snap)); loaded.add(k); idReady = loaded.size === 2; render(); };
     Store.ref.collection("owners").onSnapshot(idSnap("o", (m) => { remoteOwners = m; }), (e) => console.error(e));
     Store.ref.collection("names").onSnapshot(idSnap("n", (m) => { remoteNames = m; }), (e) => console.error(e));
-    // 部員は匿名ログインで端末ごとの ID を持つ。編集者はメールでログイン
+    // 部員としての匿名ログイン（端末の ID）と編集ログインは別々のアプリで持つ。
+    // 同じアプリだと編集ログインで匿名ログインが置き換わり、ログアウト後に端末の名前が消えてしまう
+    const memberRef = Store.ref;
     firebase.auth().onAuthStateChanged((u) => {
-      canEdit = !!u && !u.isAnonymous;
+      // 以前の版で既定のアプリにメールでログインしていた端末は、匿名ログインに戻す（編集ログインはやり直し）
+      if (u && !u.isAnonymous) { firebase.auth().signOut(); return; }
       if (!u) firebase.auth().signInAnonymously().catch((e) => console.error(e));
+      render();
+    });
+    editorApp = firebase.initializeApp(window.FIREBASE_CONFIG, "editor");
+    const editorRef = editorApp.firestore().doc("spaces/" + key);
+    editorApp.auth().onAuthStateChanged((u) => {
+      canEdit = !!u && !u.isAnonymous;
+      // 書き込みは、編集中なら編集者として、そうでなければ部員（匿名）として行う
+      Store.ref = canEdit ? editorRef : memberRef;
       render();
     });
     $("#b-login").hidden = false;
@@ -307,7 +343,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
   // ================= 端末の識別（荒らし対策） =================
   // 本番は匿名ログインの uid が端末の ID。テストモードは端末内の乱数で、?device=名前 を付けると別の端末のふりができる
   function myUid() {
-    if (Store.mode !== "local") { const u = firebase.auth().currentUser; return u ? u.uid : null; }
+    if (Store.mode !== "local") { const u = firebase.auth().currentUser; return u && u.isAnonymous ? u.uid : null; }
     const m = location.search.match(/[?&]device=([^&]+)/);
     if (m) return "dev-" + decodeURIComponent(m[1]);
     try {
@@ -360,7 +396,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     }
     try {
       const ts = firebase.firestore.FieldValue.serverTimestamp();
-      const b = firebase.firestore().batch();
+      const b = Store.ref.firestore.batch();
       b.set(Store.ref.collection("owners").doc(me), { pid, name: p.name, at: ts });
       b.set(Store.ref.collection("names").doc(pid), { uid: me, at: ts });
       await b.commit();
@@ -404,7 +440,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     const pid = own && own.pid;
     const ownsName = pid && namesMap()[pid] && namesMap()[pid].uid === u;
     if (Store.mode === "local") return save((s) => { if (s.owners) delete s.owners[u]; if (ownsName) delete s.names[pid]; }, "ログインを解除しました");
-    const b = firebase.firestore().batch();
+    const b = Store.ref.firestore.batch();
     b.delete(Store.ref.collection("owners").doc(u));
     if (ownsName) b.delete(Store.ref.collection("names").doc(pid));
     return b.commit().then(() => toast("ログインを解除しました"), (e) => { console.error(e); toast("解除できませんでした"); });
@@ -627,13 +663,15 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
   // ================= 描画 =================
   function render() {
     const role = $("#role");
-    const meP = !canEdit && ready && !noKey && idReady ? myPerson() : null;
-    role.textContent = !ready ? "読み込み中" : canEdit ? "編集できます" : meP ? meP.name + " さん" : "未ログイン";
+    // 編集中も、この端末で選んだ部員の名前は保たれる
+    const meP = ready && !noKey && idReady ? myPerson() : null;
+    role.textContent = !ready ? "読み込み中" : canEdit ? (meP ? "編集中・" + meP.name : "編集できます") : meP ? meP.name + " さん" : "未ログイン";
     role.classList.toggle("edit", canEdit);
     const bar = $("#mebar");
-    const showBar = !canEdit && ready && !noKey && idReady && myUid();
+    const showBar = ready && !noKey && idReady && myUid();
     bar.hidden = !showBar || (meP && !blockedMap()[myUid()]);
-    if (showBar && !meP) bar.innerHTML = '<span>未ログイン：名前を決めるとコメントや領収書を使えます</span><button class="btn small" type="button" data-choose>名前を決める</button>';
+    if (showBar && !meP) bar.innerHTML = "<span>" + (canEdit ? "この端末の部員としての名前がまだありません" : "未ログイン：名前を決めるとコメントや領収書を使えます") +
+      '</span><button class="btn small" type="button" data-choose>名前を決める</button>';
     else if (showBar && meP) bar.innerHTML = "<span>この端末からはコメントや領収書を送れません</span>";
     const lb = $("#b-login");
     if (Store.mode === "firebase") lb.textContent = canEdit ? "ログアウト" : "編集ログイン";
@@ -670,7 +708,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       if (k in ui.open) el.open = ui.open[k];
     });
     // 初めて開いた端末には「あなたはだれですか」を出す
-    if (showBar && !meP && !isGuest() && !ui.chooserOpen) openChooser();
+    if (showBar && !canEdit && !meP && !isGuest() && !ui.chooserOpen) openChooser();
   }
 
   const openKey = (el) => (ui.dayId || "") + ":" + el.dataset.k;
@@ -1059,7 +1097,11 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
         : '<p class="hint">まだどの端末からもログインしていません。</p>') +
       '<h3 class="sub-h">コメントの履歴（' + cs.length + "件）</h3>" +
       (cs.length ? '<div class="grp">' + cs.map((c) => '<div class="cmt"><div class="cmt-h"><span><b>' + dayName(c.dayId) + "</b>　" + fmtTime(c.at) +
-          (c.uid ? '<span class="chip dev">端末 ' + devCode(c.uid) + "</span>" : "") + (c.deletedAt ? '<span class="chip dev ng">削除済み</span>' : "") + "</span></div><p>" + esc(c.text) + "</p></div>").join("") + "</div>"
+          (c.uid ? '<span class="chip dev">端末 ' + devCode(c.uid) + "</span>" : "") + (c.deletedAt ? '<span class="chip dev ng">ゴミ箱</span>' : "") + "</span>" +
+          (c.deletedAt
+            ? '<span style="display:flex;gap:6px"><button class="btn small" type="button" data-trash="comments:' + esc(c.id) + ':restore">元に戻す</button><button class="btn small danger" type="button" data-trash="comments:' + esc(c.id) + ':purge">完全に削除</button></span>'
+            : '<button class="btn small danger" type="button" data-trash="comments:' + esc(c.id) + ':trash">削除</button>') +
+          "</div><p>" + esc(c.text) + "</p></div>").join("") + "</div>"
         : '<p class="hint">まだコメントはありません。</p>') +
       '<div class="btns"><button class="btn" type="button" data-close>閉じる</button><button class="btn danger" type="button" id="x-del">この人を削除</button></div>', (close) => {
       $("#x-save").onclick = () => {
@@ -1073,6 +1115,16 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       if (blk) blk.onclick = (e) => { if (armed(e.currentTarget, "もう一度押すとブロック")) setBlocked(lg.uid, true).then(close); };
       if (ubl) ubl.onclick = () => setBlocked(lg.uid, false).then(close);
       $("#x-del").onclick = (e) => { if (armed(e.currentTarget, "もう一度押すと削除します")) deletePerson(pid).then((ok) => ok && close()); };
+      // 履歴のコメントを削除・復元したら、この画面を開き直して最新にする
+      $("#scrim .sheet").addEventListener("click", (e) => {
+        const tb = e.target.closest("[data-trash]");
+        if (!tb) return;
+        e.stopPropagation();
+        const [kind, id, op] = tb.dataset.trash.split(":");
+        if (op !== "trash" && op !== "restore" && !armed(tb, "もう一度押すと完全に削除")) return;
+        if (op === "trash" && !armed(tb, "もう一度押すと削除")) return;
+        trashOp(kind, id, op).then(() => setTimeout(() => openMember(pid), 300));
+      });
     });
   }
 
@@ -1190,7 +1242,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     const t = ev.target;
     const tab = t.closest("[data-tab]");
     if (tab) { go({ tab: tab.dataset.tab, dayId: null }); return; }
-    if (t.closest("#b-login")) { canEdit ? firebase.auth().signOut().then(() => toast("ログアウトしました")) : openLogin(); return; }
+    if (t.closest("#b-login")) { canEdit ? editorAuth().signOut().then(() => toast("ログアウトしました")) : openLogin(); return; }
     if (t.closest("[data-back]")) { go({ dayId: null }); return; }
     const pc = t.closest("[data-post-comment]");
     if (pc && ui.dayId) {
@@ -1206,6 +1258,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       return;
     }
     if (t.closest("[data-choose]")) { openChooser(); return; }
+    if (t.closest("#b-help")) { openHelp(); return; }
     const memg = t.closest("[data-memg]");
     if (memg) { ui.memGrade = memg.dataset.memg; render(); return; }
     const mem = t.closest("[data-member]");
@@ -1529,11 +1582,41 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       '<div class="btns"><button class="btn" type="button" data-close>閉じる</button><button class="btn primary" type="submit">ログイン</button></div></form>', (close) => {
       $("#x-login").addEventListener("submit", (e) => {
         e.preventDefault(); e.stopPropagation();
-        firebase.auth().signInWithEmailAndPassword($("#x-mail").value.trim(), $("#x-pass").value)
+        editorAuth().signInWithEmailAndPassword($("#x-mail").value.trim(), $("#x-pass").value)
           .then(() => { close(); toast("ログインしました"); })
           .catch(() => toast("メールアドレスかパスワードが違います"));
       });
     });
+  }
+
+  // 使い方。部員向けを全員に、編集者向けはログイン中の編集者にだけ出す
+  function openHelp() {
+    sheet('<h3>使い方</h3><div class="howto">' +
+      '<p class="hint">「一年生をご飯に連れていく会」の担当を、ごはんポイントで公平に決めるアプリです。</p>' +
+      "<h4>はじめに</h4><ul>" +
+      "<li>最初に開いたとき、<b>自分の名前</b>を選びます。本人以外の名前は選ばないでください。一度決めると変更できず、その端末に保存されます。</li>" +
+      "<li>名前が見つからないときは「この中に名前がない」を選ぶと、グループだけ見られます。あとから画面上の「名前を決める」で選べます。</li></ul>" +
+      "<h4>日程・グループを見る</h4><ul>" +
+      "<li>「日程」タブで公開中の日をタップすると、グループごとのメンバー（新上級生と1年生）が見られます。</li></ul>" +
+      "<h4>コメント</h4><ul>" +
+      "<li>欠席の連絡は、その日のコメントに書いてください。交代など当日の連絡は、担当のメンバーが決まってから共有してください。</li></ul>" +
+      "<h4>領収書</h4><ul>" +
+      "<li>ご飯のあと、その日の「領収書を見る・アップロード」からレシートの写真を送ります。金額などは備考へ。1年生は全額、部員の補助は500円までです。</li></ul>" +
+      "<h4>ごはんポイント</h4><ul>" +
+      "<li>ポイントが少ない人ほど、次の担当に選ばれやすくなります。ご飯に行くとポイントが上がり、行かなかった人は少しずつ下がります。</li></ul>" +
+      "<h4>困ったとき</h4><ul>" +
+      "<li>機種変更などで名前を選び直したいとき、間違えて別の名前を選んだときは、管理者に連絡してください。</li></ul>" +
+      (canEdit ? "<h4>編集者の流れ</h4><ol>" +
+        "<li>「日程」タブで日付を作る</li>" +
+        "<li>連れていく1年生を選び、グループに分ける（男女均等・ランダム）</li>" +
+        "<li>グループごとの新上級生の人数を決め、来られない人にチェックして「振り分ける」</li>" +
+        "<li>結果を確認・調整して「部員に公開する」</li>" +
+        "<li>ご飯会が終わったら「ポイントを反映」（間違えたら取り消せます）</li></ol>" +
+        "<h4>編集者のその他の機能</h4><ul>" +
+        "<li>「部員」タブ：部員の追加（4年生も）、学年・性別の変更、ログイン中の端末の確認、ログイン解除、ブロック、コメント履歴</li>" +
+        "<li>コメント・領収書の削除はまずゴミ箱へ入り、元に戻せます</li>" +
+        "<li>日程一覧の一番下の「バックアップを保存」で、全データをファイルに保存できます。ご飯会のあとに保存しておくと安心です</li></ul>" : "") +
+      '</div><button class="btn" type="button" data-close>閉じる</button>', () => {});
   }
 
   let toastT;
