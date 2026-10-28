@@ -41,6 +41,9 @@
     color-scheme: dark;
   }
 }
+/* おふざけモード中は背景を赤く */
+html.joke { --bg: #F6CFCB; --line: #E8AFA9; }
+@media (prefers-color-scheme: dark) { html.joke { --bg: #3D1512; --line: #5E2621; } }
 * { box-sizing: border-box; }
 html, body { background: var(--bg); margin: 0; }
 body { color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.6; -webkit-tap-highlight-color: transparent;
@@ -346,6 +349,8 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       canEdit = !!u && !u.isAnonymous;
       // 書き込みは、編集中なら編集者として、そうでなければ部員（匿名）として行う
       Store.ref = canEdit ? editorRef : memberRef;
+      // 編集ログインしたらおふざけモードは終える（ログアウト後に勝手に戻らないように）
+      if (canEdit) setJoke(false);
       // おふざけモードの記録は編集者だけが読める
       if (canEdit && !jokerOff) jokerOff = editorRef.collection("jokers").onSnapshot((snap) => { remoteJokers = toMap(snap); render(); }, (e) => console.error(e));
       if (!canEdit && jokerOff) { jokerOff(); jokerOff = null; remoteJokers = {}; }
@@ -457,12 +462,16 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
   const jokeKeyOf = (mail, pass) => sha256hex("gohan-joke\n" + mail.trim().toLowerCase() + "\n" + pass);
   const jokeFlag = () => "gohan-joke:" + myUid();
   function setJoke(on) { try { on ? localStorage.setItem(jokeFlag(), "1") : localStorage.removeItem(jokeFlag()); } catch (e) {} }
-  // 名前を登録して22時間以上たち、どこからも止められていない端末だけ
-  function jokeEligible() {
+  // 名前を登録していて、どこからも止められていない端末だけ
+  function jokeBasicOk() {
     const me = myUid(), o = me && ownersMap()[me];
     if (canEdit || !o || !myPerson()) return false;
-    if (state.jokeOff || jokeBlockedMap()[me] || blockedMap()[me]) return false;
-    return tsMs(o.at) > 0 && Date.now() - tsMs(o.at) >= jokeWaitMs();
+    return !(state.jokeOff || jokeBlockedMap()[me] || blockedMap()[me]);
+  }
+  // 名前の登録から22時間たったか（初めておふざけモードに入るときだけ必要）
+  function jokeWaited() {
+    const o = ownersMap()[myUid()];
+    return !!o && tsMs(o.at) > 0 && Date.now() - tsMs(o.at) >= jokeWaitMs();
   }
   function jokeActive() {
     let on = false;
@@ -472,10 +481,12 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
   }
   // 合言葉が合っていれば true。違う・条件を満たさないときは false（編集ログインとして続けて試す）
   async function tryJoke(mail, pass) {
-    if (!jokeEligible()) return false;
+    if (!jokeBasicOk()) return false;
     const key = await jokeKeyOf(mail, pass), me = myUid(), p = myPerson();
     if (Store.mode === "local") {
       if (key !== (await jokeKeyOf(DEV_JOKE.mail, DEV_JOKE.pass))) return false;
+      // 一度入ったことのある端末は22時間の条件なし
+      if (!(state.jokers || {})[me] && !jokeWaited()) return false;
       const ok = await save((s) => {
         s.jokers = s.jokers || {};
         if (s.jokers[me]) s.jokers[me].lastAt = Date.now();
@@ -487,8 +498,10 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     const ref = Store.ref.collection("jokers").doc(me), ts = firebase.firestore.FieldValue.serverTimestamp();
     try {
       const snap = await ref.get();
+      // 一度入ったことのある端末は22時間の条件なし（ルールも2回目以降は見ない）
       if (snap.exists) await ref.update({ key, lastAt: ts });
-      else await ref.set({ pid: p.id, name: p.name, key, at: ts, lastAt: ts });
+      else if (jokeWaited()) await ref.set({ pid: p.id, name: p.name, key, at: ts, lastAt: ts });
+      else return false;
       setJoke(true);
       return true;
     } catch (e) { return false; }
@@ -782,6 +795,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     const bar = $("#mebar");
     const showBar = ready && !noKey && idReady && myUid();
     const joking = showBar && jokeActive();
+    document.documentElement.classList.toggle("joke", !!joking);
     bar.hidden = !showBar || (meP && !blockedMap()[myUid()] && !joking);
     if (showBar && !meP) bar.innerHTML = "<span>" + (canEdit ? "この端末の部員としての名前がまだありません" : "未ログイン：名前を決めるとコメントや領収書を使えます") +
       '</span><button class="btn small" type="button" data-choose>名前を決める</button>';
@@ -1761,13 +1775,15 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       $("#x-login").addEventListener("submit", (e) => {
         e.preventDefault(); e.stopPropagation();
         const mail = $("#x-mail").value.trim(), pass = $("#x-pass").value;
-        // おふざけモードの合言葉なら編集ログインはしない。違えば（条件を満たさないときも）普通の編集ログインとして試す
-        tryJoke(mail, pass).then((joke) => {
-          if (joke) { close(); toast("おふざけモード ON"); render(); return; }
-          if (Store.mode === "local") { toast("メールアドレスかパスワードが違います"); return; }
-          return editorAuth().signInWithEmailAndPassword(mail, pass)
-            .then(() => { close(); toast("ログインしました"); });
-        }).catch(() => toast("メールアドレスかパスワードが違います"));
+        // まず編集ログインを試し、通らなければおふざけモードの合言葉として試す
+        // （おふざけモードに入ったことのある端末でも、編集者の情報なら必ず編集ログインになる）
+        const editorLogin = Store.mode === "local" ? Promise.reject() : editorAuth().signInWithEmailAndPassword(mail, pass);
+        editorLogin.then(() => { setJoke(false); close(); toast("ログインしました"); }, () =>
+          tryJoke(mail, pass).then((joke) => {
+            if (joke) { close(); toast("おふざけモード ON"); render(); return; }
+            toast("メールアドレスかパスワードが違います");
+          })
+        ).catch(() => toast("メールアドレスかパスワードが違います"));
       });
     });
   }
