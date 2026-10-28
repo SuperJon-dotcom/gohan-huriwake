@@ -749,8 +749,10 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     if (dc && canEdit) { if (armed(dc, "もう一度押すと削除")) deleteComment(dc.dataset.delCmt); return; }
     if (t.closest("[data-copy-link]")) {
       const url = location.href;
-      (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject())
-        .then(() => toast("リンクをコピーしました。LINEなどで部員に送ってください"), () => toast(url));
+      const ok = () => toast("リンクをコピーしました。LINEなどで部員に送ってください");
+      // スマホやアプリ内ブラウザでは clipboard API が使えないことがあるので、昔ながらの方法を先に試す
+      if (copyByTextarea(url)) { ok(); return; }
+      (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(ok, () => showLink(url));
       return;
     }
     const od = t.closest("[data-open-day]");
@@ -908,6 +910,28 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     document.addEventListener("keydown", onKey);
     $("#scrim").addEventListener("click", (e) => { if (e.target.id === "scrim" || e.target.closest("[data-close]")) close(); });
     onReady(close);
+  }
+  function copyByTextarea(text) {
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.readOnly = true;
+    ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;font-size:16px";
+    document.body.appendChild(ta);
+    ta.select(); ta.setSelectionRange(0, text.length);
+    let done = false;
+    try { done = document.execCommand("copy"); } catch (e) {}
+    ta.remove();
+    return done;
+  }
+  // コピーできなかったときは、リンクを見せて長押しでコピーしてもらう
+  function showLink(url) {
+    sheet('<h3>部員に送るリンク</h3><p class="hint">自動でコピーできませんでした。下のリンクを長押ししてコピーしてください。</p>' +
+      '<textarea readonly id="link-box" rows="3" style="font-size:16px">' + esc(url) + "</textarea>" +
+      (navigator.share ? '<button class="btn primary" type="button" id="link-share">LINEなどで共有する</button>' : "") +
+      '<button class="btn" type="button" data-close>閉じる</button>', () => {
+      const box = $("#link-box"); box.focus(); box.select();
+      const sh = $("#link-share");
+      if (sh) sh.addEventListener("click", () => navigator.share({ url }).catch(() => {}));
+    });
   }
   const segHtml = (name, opts, cur) => '<div class="seg" data-seg="' + name + '">' + opts.map(([v, l]) => '<button type="button" data-v="' + v + '" aria-pressed="' + (String(v) === String(cur)) + '">' + l + "</button>").join("") + "</div>";
 
