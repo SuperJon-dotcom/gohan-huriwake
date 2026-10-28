@@ -444,7 +444,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
         : '<li class="blank">新上級生タブで登録してください。</li>') + "</ul></details>";
     const need = groups.reduce((a, g) => a + (g.need || 0), 0);
     const avail = seniors.filter((p) => !absent.has(p.id)).length;
-    h += '<p class="hint">必要 ' + need + "人 ／ 来られる新上級生 " + avail + "人。ごはんポイントが少ない人から選び、男女の均等 → 3年生1人以上 の順に考えてグループへ入れます。</p>" +
+    h += '<p class="hint">必要 ' + need + "人 ／ 来られる新上級生 " + avail + "人。1年生も含めて男女が均等になるよう、ごはんポイントが少ない人から選びます。グループは 男女のバランス → 新上級生の男女差2人以内 → 3年・2年の差1人以内 の順に整えます。</p>" +
       '<button class="btn primary" type="button" data-auto' + (locked || !need ? " disabled" : "") + ">" + (groups.some((g) => (g.sIds || []).length) ? "もう一度振り分ける" : "振り分ける") + "</button></div></section>";
 
     // 6. 結果の確認と手動調整
@@ -475,7 +475,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     h += '<section><h2>この日の操作</h2><div class="panel">';
     if (d.status === "draft") h += '<button class="btn yolk" type="button" data-status="published">この振り分けを部員に公開する</button><p class="hint">公開すると、ログインしていない部員にもこの日の担当が見えます。</p>';
     if (d.status === "published") h += '<button class="btn good" type="button" data-finish>ご飯会が終わった（ポイントを反映）</button><button class="btn" type="button" data-status="draft">公開をやめて準備中に戻す</button>' +
-      '<p class="hint">反映すると、行った新上級生は回数+1・ポイントが「100＋回数×50」に、行っていない人は「(最大回数−自分の回数+1)×15」減ります。</p>';
+      '<p class="hint">反映すると、行った新上級生は回数+1・ポイントが「100＋(自分の回数−最小回数+1)×50」になります（最大回数の人以外はそこから下の減少も）。行っていない人は「(最大回数−自分の回数+1)×15＋30×(1−P/(P+50))」減ります（P＝自分のポイント）。</p>';
     if (d.status === "done") h += '<button class="btn danger" type="button" data-undo>ポイント反映を取り消す</button><p class="hint">この日より後に反映した日程がある場合は、そちらから先に取り消してください。</p>';
     h += '<div class="row"><label class="f">日付<input type="date" id="e-date" value="' + esc(d.date) + '"' + (locked ? " disabled" : "") + '></label><label class="f">メモ<input type="text" id="e-note" maxlength="40" value="' + esc(d.note || "") + '"></label></div>' +
       '<button class="btn danger" type="button" data-del-day>この日程を削除</button></div></section>';
@@ -521,7 +521,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
         '<div class="row"><div class="f">学年<div class="seg" data-seg="s-grade"><button type="button" data-v="2" aria-pressed="true">2年</button><button type="button" data-v="3" aria-pressed="false">3年</button></div></div>' +
         '<div class="f">性別<div class="seg" data-seg="s-gender"><button type="button" data-v="男" aria-pressed="true">男</button><button type="button" data-v="女" aria-pressed="false">女</button></div></div></div>' +
         '<div class="row"><label class="f">今までご飯に行った回数<input type="number" id="s-count" min="0" max="999" value="0" inputmode="numeric"></label>' +
-        '<label class="f">ごはんポイント<input type="number" id="s-points" value="0" inputmode="numeric"></label></div>' +
+        '<label class="f">ごはんポイント<input type="number" id="s-points" value="0" step="any" inputmode="decimal"></label></div>' +
         '<button class="btn primary" type="submit">追加する</button></form></section>';
     }
     h += '<section><h2>' + (canEdit ? "新上級生一覧" : "ごはんポイント") + " <small>ポイントが少ない人ほど次の担当に近い</small></h2><ul class=\"list\">" +
@@ -564,11 +564,11 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     ui.rand = {}; Object.keys(S).forEach((id) => { ui.rand[id] = Math.random(); });
     const cands = Object.entries(S).filter(([id]) => !absent.has(id)).map(([id, v]) => ({ id, ...v }));
     const total = day.groups.reduce((a, g) => a + (g.need || 0), 0);
-    const chosen = L.selectSeniors(cands, total, ui.rand);
     const groups = day.groups.map((g, gi) => ({
       need: g.need || 0,
       freshmen: Object.entries(day.fGroup || {}).filter(([, x]) => x === gi).map(([id]) => F[id] && { id, ...F[id] }).filter(Boolean),
     }));
+    const chosen = L.selectSeniors(cands, total, ui.rand, [].concat(...groups.map((g) => g.freshmen)));
     const res = L.distribute(groups, chosen);
     day.groups.forEach((g, gi) => { g.sIds = res[gi]; });
     return chosen.length < total ? "来られる新上級生が" + (total - chosen.length) + "人足りません" : "振り分けました。内容を確認してください";
@@ -728,7 +728,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       const name = $("#s-name").value.trim().slice(0, 30);
       if (!name) return;
       if (Object.values(state.seniors).some((p) => p.name === name)) { toast("同じ名前の人がすでにいます"); return; }
-      const rec = { name, grade: Number(segVal("s-grade")), gender: segVal("s-gender"), count: Math.max(0, parseInt($("#s-count").value, 10) || 0), points: parseInt($("#s-points").value, 10) || 0 };
+      const rec = { name, grade: Number(segVal("s-grade")), gender: segVal("s-gender"), count: Math.max(0, parseInt($("#s-count").value, 10) || 0), points: parseFloat($("#s-points").value) || 0 };
       save((s) => { s.seniors[uid()] = rec; }, name + " さんを追加しました").then((ok) => ok && $("#s-name") && $("#s-name").focus());
     } else if (f.id === "f-fresh") {
       const name = $("#fr-name").value.trim().slice(0, 30);
@@ -756,12 +756,12 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     sheet('<h3>' + esc(p.name) + '</h3><label class="f">名前<input type="text" id="x-name" maxlength="30" value="' + esc(p.name) + '"></label>' +
       '<div class="row"><div class="f">学年' + segHtml("x-grade", [[2, "2年"], [3, "3年"]], p.grade) + '</div><div class="f">性別' + segHtml("x-gender", [["男", "男"], ["女", "女"]], p.gender) + "</div></div>" +
       '<div class="row"><label class="f">今までご飯に行った回数<input type="number" id="x-count" min="0" value="' + (p.count || 0) + '" inputmode="numeric"></label>' +
-      '<label class="f">ごはんポイント<input type="number" id="x-points" value="' + (p.points || 0) + '" inputmode="numeric"></label></div>' +
+      '<label class="f">ごはんポイント<input type="number" id="x-points" value="' + (p.points || 0) + '" step="any" inputmode="decimal"></label></div>' +
       '<div class="btns"><button class="btn" type="button" data-close>閉じる</button><button class="btn primary" type="button" id="x-save">保存</button></div>' +
       '<button class="btn danger" type="button" id="x-del">この人を削除</button>', (close) => {
       $("#x-save").onclick = () => {
         const name = $("#x-name").value.trim().slice(0, 30); if (!name) { toast("名前を入力してください"); return; }
-        const rec = { name, grade: Number(segVal("x-grade")), gender: segVal("x-gender"), count: Math.max(0, parseInt($("#x-count").value, 10) || 0), points: parseInt($("#x-points").value, 10) || 0 };
+        const rec = { name, grade: Number(segVal("x-grade")), gender: segVal("x-gender"), count: Math.max(0, parseInt($("#x-count").value, 10) || 0), points: parseFloat($("#x-points").value) || 0 };
         save((s) => { Object.assign(s.seniors[id], rec); }, "保存しました").then((ok) => ok && close());
       };
       $("#x-del").onclick = (e) => {

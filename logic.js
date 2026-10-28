@@ -13,35 +13,43 @@
       ((rand && rand[a.id]) || 0) - ((rand && rand[b.id]) || 0);
   }
 
-  // 担当になる新上級生を選ぶ（ポイントの少ない順に total 人）
-  function selectSeniors(candidates, total, rand) {
-    return candidates.slice().sort(byPriority(rand)).slice(0, Math.max(0, total));
+  // 担当になる新上級生を選ぶ。1年生も含めた全体の男女が均等になるよう、男女それぞれポイントの少ない順に取る
+  function selectSeniors(candidates, total, rand, freshmen) {
+    total = Math.min(Math.max(0, total), candidates.length);
+    const sorted = candidates.slice().sort(byPriority(rand));
+    const males = sorted.filter(isMale), females = sorted.filter((p) => !isMale(p));
+    const fr = freshmen || [];
+    const frM = fr.filter(isMale).length, frF = fr.length - frM;
+    const out = [];
+    let mi = 0, fi = 0;
+    while (out.length < total) {
+      const m = frM + mi, f = frF + fi;
+      let takeMale;
+      if (mi >= males.length) takeMale = false;
+      else if (fi >= females.length) takeMale = true;
+      else if (m !== f) takeMale = m < f;
+      else takeMale = byPriority(rand)(males[mi], females[fi]) <= 0;
+      out.push(takeMale ? males[mi++] : females[fi++]);
+    }
+    return out;
   }
 
-  // 1グループの評価。小さいほど良い。[男女の最低人数不足, 男女差, 3年不在]
-  function groupCost(freshmen, seniors, need) {
+  // 1グループの基本ルール違反の数（1年生込み）。3人以下: 男女差1以内、4人以上: 男女それぞれ2人以上
+  function baseViolation(freshmen, seniors) {
     const all = freshmen.concat(seniors);
-    const n = all.length;
-    const m = all.filter(isMale).length;
-    const f = n - m;
-    const short = n >= 4 ? Math.max(0, 2 - m) + Math.max(0, 2 - f) : 0;
-    const imbalance = Math.max(0, Math.abs(m - f) - (n % 2));
-    const noThird = need > 0 && !seniors.some(isThird) ? 1 : 0;
-    return [short, imbalance, noThird];
+    const n = all.length, m = all.filter(isMale).length, f = n - m;
+    if (n >= 4) return Math.max(0, 2 - m) + Math.max(0, 2 - f);
+    return Math.max(0, Math.abs(m - f) - 1);
   }
-
-  function totalCost(groups, slots) {
-    const t = [0, 0, 0];
-    groups.forEach((g, i) => {
-      const c = groupCost(g.freshmen, slots[i].filter(Boolean), g.need);
-      t[0] += c[0]; t[1] += c[1]; t[2] += c[2];
-    });
-    return t;
+  // 新上級生の男女差が3人以上の分
+  function genderSkew(seniors) {
+    const m = seniors.filter(isMale).length;
+    return Math.max(0, Math.abs(m - (seniors.length - m)) - 2);
   }
-
-  function less(a, b) {
-    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] < b[i];
-    return false;
+  // 新上級生の3年・2年の差が2人以上の分
+  function gradeSkew(seniors) {
+    const t = seniors.filter(isThird).length;
+    return Math.max(0, Math.abs(t - (seniors.length - t)) - 1);
   }
 
   function shuffle(arr) {
@@ -54,39 +62,69 @@
   }
 
   // 選ばれた新上級生を各グループへ。groups: [{freshmen:[人], need:数}]
-  // 優先度: 男女の均等（4人以上なら各2人以上） > 各グループに3年1人以上
-  function distribute(groups, chosen, restarts) {
-    const sizes = groups.map((g) => Math.max(0, g.need | 0));
-    const totalSlots = sizes.reduce((a, b) => a + b, 0);
-    let best = null, bestCost = null;
-    const tries = chosen.length ? (restarts || 60) : 1;
-    for (let r = 0; r < tries; r++) {
-      const pool = shuffle(chosen);
-      while (pool.length < totalSlots) pool.push(null);
-      let k = 0;
-      const slots = sizes.map((s) => pool.slice(k, (k += s)));
-      let cost = totalCost(groups, slots);
+  // 1) 3人以下のグループ: 1年生込みで男女 2:1 / 1:2（2人なら1:1）になるようランダムに選ぶ
+  // 2) 4人以上のグループ: 1年生込みで男女それぞれ2人以上になるよう残りからランダムに入れる
+  // 3) 新上級生の男女差が3人以上のグループは、グループ間で男女を入れ替えて差を2人以下に（できなければそのまま）
+  // 4) 新上級生の3年・2年の差が2人以上のグループは、同性同士を入れ替えて差を1人以下に（できなければそのまま）
+  function distribute(groups, chosen) {
+    const pool = { m: shuffle(chosen.filter(isMale)), f: shuffle(chosen.filter((p) => !isMale(p))) };
+    const take = (male) => (male ? pool.m : pool.f).pop() || (male ? pool.f : pool.m).pop() || null;
+    const slots = groups.map(() => []);
+    const need = groups.map((g) => Math.max(0, g.need | 0));
+    const size = (gi) => groups[gi].freshmen.length + need[gi];
+    const counts = (gi) => {
+      const all = groups[gi].freshmen.concat(slots[gi]);
+      const m = all.filter(isMale).length;
+      return { m, f: all.length - m };
+    };
+    const order = shuffle(groups.map((_, i) => i));
+    const small = order.filter((gi) => size(gi) <= 3), large = order.filter((gi) => size(gi) >= 4);
+
+    small.forEach((gi) => {
+      while (slots[gi].length < need[gi]) {
+        const c = counts(gi);
+        const male = c.m === c.f ? (pool.m.length && pool.f.length ? Math.random() < 0.5 : pool.m.length > 0) : c.m < c.f;
+        const p = take(male);
+        if (!p) break;
+        slots[gi].push(p);
+      }
+    });
+    large.forEach((gi) => {
+      while (slots[gi].length < need[gi]) {
+        const c = counts(gi);
+        const p = c.m < 2 && c.m <= c.f ? take(true) : c.f < 2 ? take(false) : null;
+        if (!p) break;
+        slots[gi].push(p);
+      }
+    });
+    const rest = shuffle(pool.m.concat(pool.f));
+    large.forEach((gi) => { while (slots[gi].length < need[gi] && rest.length) slots[gi].push(rest.pop()); });
+
+    // 入れ替えで skew を減らす。基本ルールと、すでに整えた条件は悪化させない
+    const base = () => slots.reduce((a, s, gi) => a + baseViolation(groups[gi].freshmen, s), 0);
+    const sum = (fn) => slots.reduce((a, s) => a + fn(s), 0);
+    function improve(fn, canSwap, keep) {
       let improved = true;
       while (improved) {
         improved = false;
-        for (let a = 0; a < slots.length; a++) for (let b = a + 1; b < slots.length; b++) {
-          for (let i = 0; i < slots[a].length; i++) for (let j = 0; j < slots[b].length; j++) {
+        for (let a = 0; a < slots.length && !improved; a++) for (let b = 0; b < slots.length && !improved; b++) {
+          if (a === b) continue;
+          for (let i = 0; i < slots[a].length && !improved; i++) for (let j = 0; j < slots[b].length && !improved; j++) {
             const x = slots[a][i], y = slots[b][j];
-            if (!x && !y) continue;
-            if (x && y && isMale(x) === isMale(y) && isThird(x) === isThird(y)) continue;
+            if (!canSwap(x, y)) continue;
+            const before = [base(), keep ? sum(keep) : 0, sum(fn)];
             slots[a][i] = y; slots[b][j] = x;
-            const c = totalCost(groups, slots);
-            if (less(c, cost)) { cost = c; improved = true; }
+            const after = [base(), keep ? sum(keep) : 0, sum(fn)];
+            if (after[0] <= before[0] && after[1] <= before[1] && after[2] < before[2]) improved = true;
             else { slots[a][i] = x; slots[b][j] = y; }
           }
         }
       }
-      if (!best || less(cost, bestCost)) { best = slots.map((s) => s.slice()); bestCost = cost; }
-      if (bestCost.every((v) => v === 0)) break;
     }
-    return best.map((s) =>
-      s.filter(Boolean).sort((p, q) => Number(q.grade) - Number(p.grade)).map((p) => p.id)
-    );
+    improve(genderSkew, (x, y) => isMale(x) !== isMale(y));
+    improve(gradeSkew, (x, y) => isMale(x) === isMale(y) && isThird(x) !== isThird(y), genderSkew);
+
+    return slots.map((s) => s.sort((p, q) => Number(q.grade) - Number(p.grade)).map((p) => p.id));
   }
 
   // 画面に出す注意。freshmen/seniors は人の配列
@@ -97,8 +135,9 @@
     const all = freshmen.concat(seniors);
     const m = all.filter(isMale).length, f = all.length - m;
     if (all.length >= 4 && (m < 2 || f < 2)) w.push("4人以上なのに" + (m < 2 ? "男子" : "女子") + "が2人未満");
-    else if (Math.abs(m - f) > 1) w.push("男女の差が大きいです");
-    if (need > 0 && !seniors.some(isThird)) w.push("3年生がいません");
+    else if (all.length <= 3 && Math.abs(m - f) > 1) w.push("男女の差が大きいです");
+    if (genderSkew(seniors)) w.push("新上級生の男女差が3人以上です");
+    if (gradeSkew(seniors)) w.push("新上級生の3年・2年の差が2人以上です");
     return { warnings: w, male: m, female: f };
   }
 
@@ -126,9 +165,14 @@
     return out;
   }
 
-  // ご飯会後のポイント反映
-  // 行った人: 回数+1、ポイント = 100 + 回数×50
-  // 行かなかった人: ポイント -= (全員の最大回数 − 自分の回数 + 1) × 15
+  // ご飯会後のポイント反映（回数は今回の分を足してから計算）
+  // 減少量 = (最大回数 − 自分の回数 + 1)×15 + 30×(1 − P/(P+50))　P は自分のポイント（0未満は0として扱う）
+  // 行った人: ポイント = 100 + (自分の回数 − 最小回数 + 1)×50。最大回数の人でなければ、続けて減少量を引く
+  // 行かなかった人: ポイント −= 減少量
+  function decrease(points, count, maxCount) {
+    const p = Math.max(0, points);
+    return (maxCount - count + 1) * 15 + 30 * (1 - p / (p + 50));
+  }
   function applyMeal(seniors, attendedIds) {
     const went = new Set(attendedIds);
     const next = {}, before = {};
@@ -136,15 +180,22 @@
       before[s.id] = { count: Number(s.count) || 0, points: Number(s.points) || 0 };
       next[s.id] = { count: before[s.id].count + (went.has(s.id) ? 1 : 0), points: before[s.id].points };
     });
-    const maxCount = Math.max(0, ...Object.values(next).map((v) => v.count));
+    const cs = Object.values(next).map((v) => v.count);
+    const maxCount = Math.max(0, ...cs), minCount = cs.length ? Math.min(...cs) : 0;
     Object.keys(next).forEach((id) => {
       const v = next[id];
-      v.points = went.has(id) ? 100 + v.count * 50 : v.points - (maxCount - v.count + 1) * 15;
+      if (went.has(id)) {
+        v.points = 100 + (v.count - minCount + 1) * 50;
+        if (v.count < maxCount) v.points -= decrease(v.points, v.count, maxCount);
+      } else {
+        v.points -= decrease(v.points, v.count, maxCount);
+      }
+      v.points = Math.round(v.points * 10) / 10;
     });
     return { next, before };
   }
 
-  const api = { byPriority, selectSeniors, groupCost, distribute, groupWarnings, splitFreshmen, randomSplit, applyMeal };
+  const api = { byPriority, selectSeniors, distribute, groupWarnings, splitFreshmen, randomSplit, applyMeal };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.GohanLogic = api;
 })(this);
