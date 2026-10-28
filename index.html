@@ -1,0 +1,708 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>ごはん担当ふりわけ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<script>
+  // ▼ Firebase の設定をここに貼り付けます（手順は SETUP.md）。null のままだと「テストモード」で、データはこの端末にだけ保存されます。
+  window.FIREBASE_CONFIG = {
+    apiKey: "AIzaSyALJSkWFLaCNnp5FtaQB7lAAebVoiEGE9I",
+    authDomain: "gohan-huriwake.firebaseapp.com",
+    projectId: "gohan-huriwake",
+    storageBucket: "gohan-huriwake.firebasestorage.app",
+    messagingSenderId: "353592669862",
+    appId: "1:353592669862:web:78b2ba292f360f605ca667"
+  };
+</script>
+<style>
+:root {
+  --bg: #F1F3F6; --surface: #FFFFFF; --ink: #18233A; --muted: #5E6880; --line: #DCE0E8;
+  --yolk: #F2A81D; --yolk-soft: #FDF0D3; --yolk-ink: #3A2600; --good: #23855B; --good-soft: #E1F3EA; --warn: #B4471F; --warn-soft: #FBE7DF;
+  --f-display: "Dela Gothic One", "Hiragino Kaku Gothic StdN", "Yu Gothic", sans-serif;
+  --f-body: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
+  --f-num: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0F1522; --surface: #182133; --ink: #E8ECF4; --muted: #9AA4B9; --line: #2A3549;
+    --yolk: #F5B83A; --yolk-soft: #33280F; --yolk-ink: #F9E2B0; --good: #4CC08A; --good-soft: #15301F; --warn: #F08A62; --warn-soft: #3A1C12;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { background: var(--bg); margin: 0; }
+body { color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.6; -webkit-tap-highlight-color: transparent;
+  padding-top: env(safe-area-inset-top, 0px); }
+[hidden] { display: none !important; }
+.wrap { max-width: 560px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header.top { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); padding-top: env(safe-area-inset-top, 0px); margin-top: calc(-1 * env(safe-area-inset-top, 0px)); }
+header.top .wrap { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 12px; }
+h1 { font-family: var(--f-display); font-weight: 400; font-size: 19px; margin: 0; letter-spacing: .02em; }
+.hdr-r { display: flex; gap: 8px; align-items: center; }
+.role { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; background: var(--line); color: var(--muted); white-space: nowrap; }
+.role.edit { background: var(--yolk-soft); color: var(--yolk-ink); }
+.banner { background: var(--yolk-soft); color: var(--yolk-ink); font-size: 12px; font-weight: 700; text-align: center; padding: 6px 16px; }
+main .wrap { display: flex; flex-direction: column; gap: 26px; padding-block: 20px calc(96px + env(safe-area-inset-bottom, 0px)); }
+section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+h2 { font-size: 13px; font-weight: 700; color: var(--muted); letter-spacing: .06em; margin: 0; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+h2 small { font-weight: 500; letter-spacing: 0; }
+h2 .step { font-family: var(--f-num); color: var(--yolk-ink); background: var(--yolk-soft); border-radius: 6px; padding: 0 6px; margin-right: 6px; letter-spacing: 0; }
+.num { font-family: var(--f-num); font-variant-numeric: tabular-nums; }
+
+.list { list-style: none; margin: 0; padding: 0; background: var(--surface); border-radius: 12px; border: 1px solid var(--line); overflow: hidden; }
+.list li { display: grid; grid-template-columns: 28px 1fr auto; align-items: center; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--line); min-height: 52px; }
+.list li:first-child { border-top: 0; }
+.list li.tap { cursor: pointer; }
+.list li.tap:active { background: var(--bg); }
+.list li.off { opacity: .45; }
+.list li.blank { display: block; color: var(--muted); font-size: 14px; text-align: center; padding: 18px; }
+.mark { font-family: var(--f-num); color: var(--muted); font-size: 13px; text-align: center; }
+.who { min-width: 0; display: flex; flex-direction: column; }
+.who b { font-weight: 700; overflow-wrap: anywhere; }
+.who small { color: var(--muted); font-size: 12px; }
+.pt { text-align: right; font-family: var(--f-num); font-size: 17px; line-height: 1; white-space: nowrap; }
+.pt small { display: block; font-family: var(--f-body); font-size: 11px; color: var(--muted); margin-top: 3px; }
+.chip { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 6px; background: var(--bg); color: var(--muted); margin-right: 4px; white-space: nowrap; }
+.chip.g3 { background: var(--yolk-soft); color: var(--yolk-ink); }
+.status { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.st-draft { background: var(--line); color: var(--muted); }
+.st-published { background: var(--yolk); color: #1d1400; }
+.st-done { background: var(--good-soft); color: var(--good); }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; }
+.row > * { flex: 1 1 140px; min-width: 0; }
+.f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 700; color: var(--muted); }
+input[type=text], input[type=date], input[type=number], input[type=email], input[type=password], select {
+  font: inherit; font-size: 16px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; width: 100%; min-height: 44px;
+}
+select.mini { width: auto; min-height: 36px; padding: 4px 8px; font-size: 14px; font-weight: 700; }
+input:focus-visible, select:focus-visible, button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--yolk); outline-offset: 2px; }
+.seg { display: flex; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 3px; gap: 3px; }
+.seg button { flex: 1; font: inherit; font-weight: 700; font-size: 14px; border: 0; background: transparent; color: var(--muted); border-radius: 8px; min-height: 38px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.stepper { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; }
+.stepper button { font: inherit; font-size: 20px; width: 44px; min-height: 40px; border: 0; background: transparent; color: var(--ink); cursor: pointer; }
+.stepper output { flex: 1; text-align: center; font-family: var(--f-num); font-size: 17px; min-width: 2ch; }
+.stepper.sm button { width: 36px; min-height: 34px; font-size: 18px; }
+.btn { font: inherit; font-weight: 700; font-size: 15px; border-radius: 12px; min-height: 48px; padding: 0 18px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+.btn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.btn.yolk { background: var(--yolk); color: #1d1400; border-color: var(--yolk); }
+.btn.good { background: var(--good); color: #fff; border-color: var(--good); }
+.btn.small { min-height: 34px; font-size: 13px; padding: 0 12px; border-radius: 9px; }
+.btn.danger { color: var(--warn); }
+.btn.danger.armed { background: var(--warn); color: #fff; border-color: var(--warn); }
+.btn.link { border: 0; background: transparent; padding: 0 4px; min-height: 36px; color: var(--muted); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.btns .btn { flex: 1 1 auto; }
+.hint { font-size: 12px; color: var(--muted); margin: 0; }
+.check { display: grid; grid-template-columns: 24px 1fr auto; gap: 10px; align-items: center; cursor: pointer; }
+.check input { width: 22px; height: 22px; accent-color: var(--ink); margin: 0; }
+details summary { cursor: pointer; font-size: 13px; font-weight: 700; color: var(--muted); padding: 4px 0; }
+
+/* day cards */
+.day { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.day.tap { cursor: pointer; }
+.day-h { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.day-h b { font-family: var(--f-display); font-weight: 400; font-size: 20px; }
+.day-h .sub { color: var(--muted); font-size: 12px; }
+
+/* group cards */
+.grp { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface); }
+.grp-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 14px; background: var(--bg); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.grp-h b { font-family: var(--f-display); font-weight: 400; font-size: 17px; }
+.gl { font-family: var(--f-display); display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: var(--ink); color: var(--bg); font-size: 15px; }
+.grp-b { padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
+.grp-row { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.grp-row > span:first-child { font-size: 11px; font-weight: 700; color: var(--muted); width: 4.5em; flex: none; }
+.names { display: flex; flex-wrap: wrap; gap: 4px 12px; min-width: 0; flex: 1; }
+.names span { font-weight: 700; }
+.names em { font-style: normal; font-size: 11px; color: var(--muted); margin-left: 2px; }
+.badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; }
+.badge.ok { background: var(--good-soft); color: var(--good); }
+.badge.ng { background: var(--warn-soft); color: var(--warn); }
+.mf { font-size: 12px; color: var(--muted); font-family: var(--f-num); }
+.slot { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px dashed var(--line); }
+.slot:first-child { border-top: 0; }
+
+nav.tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; background: var(--surface); border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom, 0px); padding-left: max(8px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px)); }
+nav.tabs .in { max-width: 560px; margin: 0 auto; display: flex; }
+nav.tabs button { flex: 1; font: inherit; font-size: 12px; font-weight: 700; border: 0; background: transparent; color: var(--muted); min-height: 58px; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+nav.tabs button svg { width: 22px; height: 22px; }
+nav.tabs button[aria-selected="true"] { color: var(--ink); }
+nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
+
+.scrim { position: fixed; inset: 0; background: rgba(10,14,24,.45); z-index: 20; display: flex; align-items: flex-end; justify-content: center; }
+.sheet { background: var(--surface); width: 100%; max-width: 560px; border-radius: 18px 18px 0 0; display: flex; flex-direction: column; gap: 14px;
+  padding-top: 18px; padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px)); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); max-height: 90%; overflow-y: auto; }
+.sheet h3 { margin: 0; font-family: var(--f-display); font-weight: 400; font-size: 20px; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(76px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 14px; font-weight: 700; z-index: 30; max-width: calc(100% - 32px); }
+@media (prefers-reduced-motion: no-preference) { .toast { animation: up .2s ease-out; } @keyframes up { from { transform: translate(-50%, 8px); opacity: 0; } } }
+</style>
+</head>
+<body>
+
+<header class="top"><div class="wrap">
+  <h1>ごはん担当ふりわけ</h1>
+  <div class="hdr-r">
+    <span class="role" id="role">読み込み中</span>
+    <button class="btn small" id="b-login" type="button" hidden>編集ログイン</button>
+  </div>
+</div></header>
+<div class="banner" id="banner" hidden>テストモード：データはこの端末にだけ保存されます</div>
+
+<main><div class="wrap" id="view"></div></main>
+
+<nav class="tabs" role="tablist"><div class="in" id="tabs"></div></nav>
+<div id="sheet-root"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="logic.js"></script>
+<script>
+(function () {
+  const L = window.GohanLogic;
+  const $ = (s, r) => (r || document).querySelector(s);
+  const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const clone = (o) => JSON.parse(JSON.stringify(o));
+  const today = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+  const fmtDate = (s) => { if (!s) return ""; const [y, m, d] = s.split("-").map(Number); return m + "/" + d + "（" + "日月火水木金土"[new Date(y, m - 1, d).getDay()] + "）"; };
+  const GL = "ABCDEFGHIJ";
+  const STATUS = { draft: "準備中", published: "公開中", done: "終了・反映済み" };
+
+  // ================= データ保存 =================
+  const empty = () => ({ seniors: {}, freshmen: {}, days: {} });
+  let state = empty();
+  let canEdit = false;
+  let ready = false;
+  let noKey = false;
+  const Store = { mode: window.FIREBASE_CONFIG ? "firebase" : "local", ref: null };
+
+  function normalize(d) {
+    const s = Object.assign(empty(), d || {});
+    s.seniors = s.seniors || {}; s.freshmen = s.freshmen || {}; s.days = s.days || {};
+    return s;
+  }
+
+  function startStore() {
+    if (Store.mode === "local") {
+      try { state = normalize(JSON.parse(localStorage.getItem("gohan-state") || "null")); } catch (e) { state = empty(); }
+      canEdit = true; ready = true;
+      $("#banner").hidden = false;
+      render();
+      return;
+    }
+    // データの場所は共有リンクの # 以降（鍵）で決まる。鍵はプログラムに書かない
+    const key = decodeURIComponent(location.hash.slice(1));
+    if (!/^[A-Za-z0-9_-]{16,}$/.test(key)) {
+      ready = true; noKey = true; render();
+      return;
+    }
+    firebase.initializeApp(window.FIREBASE_CONFIG);
+    Store.ref = firebase.firestore().doc("spaces/" + key);
+    Store.ref.onSnapshot((snap) => {
+      state = normalize(snap.exists ? snap.data() : null);
+      ready = true; render();
+    }, (e) => { console.error(e); ready = true; toast("データを読み込めませんでした"); render(); });
+    firebase.auth().onAuthStateChanged((u) => { canEdit = !!u; render(); });
+    $("#b-login").hidden = false;
+  }
+
+  // mutate(next) で変更を書き、保存する
+  async function save(mutate, okMsg) {
+    const next = clone(state);
+    mutate(next);
+    const prev = state;
+    state = next; render();
+    try {
+      if (Store.mode === "local") localStorage.setItem("gohan-state", JSON.stringify(next));
+      else await Store.ref.set(next);
+      if (okMsg) toast(okMsg);
+      return true;
+    } catch (e) {
+      console.error(e);
+      state = prev; render();
+      toast(Store.mode === "local" ? "この端末に保存できませんでした" : "保存できませんでした。ログイン状態と通信を確認してください");
+      return false;
+    }
+  }
+
+  // ================= 画面の状態 =================
+  const ui = { tab: "days", dayId: null, rand: {} };
+  try { const t = sessionStorage.getItem("gohan-ui"); if (t) Object.assign(ui, JSON.parse(t)); } catch (e) {}
+  function go(patch) {
+    Object.assign(ui, patch);
+    try { sessionStorage.setItem("gohan-ui", JSON.stringify({ tab: ui.tab, dayId: ui.dayId })); } catch (e) {}
+    render(); window.scrollTo(0, 0);
+  }
+
+  const seniorsArr = () => Object.entries(state.seniors).map(([id, v]) => ({ id, ...v }));
+  const freshmenArr = () => Object.entries(state.freshmen).map(([id, v]) => ({ id, ...v }));
+  const daysArr = () => Object.entries(state.days).map(([id, v]) => ({ id, ...v }))
+    .sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.createdAt || 0) - (a.createdAt || 0));
+  const personLine = (p) => (p.grade ? '<span class="chip' + (Number(p.grade) === 3 ? " g3" : "") + '">' + p.grade + "年</span>" : "") +
+    '<span class="chip">' + esc(p.gender) + "</span>";
+  const nameTag = (p, showGrade) => "<span>" + esc(p.name) + (showGrade && p.grade ? "<em>" + p.grade + "年</em>" : "") + "</span>";
+
+  function freshmanTimes() {
+    const t = {};
+    daysArr().forEach((d) => { if (d.status === "done") Object.keys(d.fGroup || {}).forEach((id) => { t[id] = (t[id] || 0) + 1; }); });
+    return t;
+  }
+
+  // ================= 描画 =================
+  function render() {
+    const role = $("#role");
+    role.textContent = !ready ? "読み込み中" : canEdit ? "編集できます" : "閲覧のみ";
+    role.classList.toggle("edit", canEdit);
+    const lb = $("#b-login");
+    if (Store.mode === "firebase") lb.textContent = canEdit ? "ログアウト" : "編集ログイン";
+
+    const tabs = canEdit
+      ? [["days", "日程", ICON.cal], ["seniors", "新上級生", ICON.ppl], ["freshmen", "1年生", ICON.sprout]]
+      : [["days", "日程", ICON.cal], ["seniors", "ポイント", ICON.ppl]];
+    if (!tabs.some((t) => t[0] === ui.tab)) ui.tab = "days";
+    $("#tabs").innerHTML = tabs.map(([k, label, ic]) => '<button role="tab" data-tab="' + k + '" aria-selected="' + (ui.tab === k) + '">' + ic + label + "</button>").join("");
+
+    const v = $("#view");
+    if (!ready) { v.innerHTML = '<p class="hint">読み込み中…</p>'; return; }
+    if (noKey) {
+      role.textContent = "表示できません"; lb.hidden = true; $("#tabs").innerHTML = "";
+      v.innerHTML = '<section><h2>リンクが正しくありません</h2><p class="hint">管理者から共有されたリンクを、最後まで省略せずに開いてください。</p></section>';
+      return;
+    }
+    if (ui.tab === "days" && ui.dayId && state.days[ui.dayId]) v.innerHTML = canEdit ? dayEditor(ui.dayId) : dayDetailView(ui.dayId);
+    else if (ui.tab === "days") { ui.dayId = null; v.innerHTML = daysList(); }
+    else if (ui.tab === "seniors") v.innerHTML = seniorsView();
+    else v.innerHTML = freshmenView();
+  }
+
+  const ICON = {
+    cal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
+    ppl: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.8c1.6.8 2.6 2.5 3 5.2"/></svg>',
+    sprout: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 21v-9"/><path d="M12 12c0-4-3-6-7-6 0 4 3 6 7 6zM12 10c0-3 2.5-5.5 7-5.5 0 3.5-2.5 5.5-7 5.5z"/></svg>',
+  };
+
+  // ---------- 日程一覧 ----------
+  function groupSummary(d) {
+    const F = state.freshmen, S = state.seniors;
+    const groups = d.groups || [];
+    return groups.map((g, gi) => {
+      const fr = Object.entries(d.fGroup || {}).filter(([, x]) => x === gi).map(([id]) => F[id] && { id, ...F[id] }).filter(Boolean);
+      const sr = (g.sIds || []).map((id) => S[id] && { id, ...S[id] }).filter(Boolean);
+      return '<div class="grp"><div class="grp-h"><span style="display:flex;gap:8px;align-items:center"><span class="gl">' + GL[gi] + "</span><b>グループ" + GL[gi] + '</b></span><span class="mf">' + (fr.length + sr.length) + "人</span></div>" +
+        '<div class="grp-b"><div class="grp-row"><span>新上級生</span><div class="names">' + (sr.map((p) => nameTag(p, true)).join("") || '<span class="hint">未定</span>') + "</div></div>" +
+        '<div class="grp-row"><span>1年生</span><div class="names">' + (fr.map((p) => nameTag(p)).join("") || '<span class="hint">なし</span>') + "</div></div></div></div>";
+    }).join("");
+  }
+
+  function daysList() {
+    const days = daysArr().filter((d) => canEdit || d.status !== "draft");
+    let h = "";
+    if (canEdit) {
+      h += '<section><h2>日程を追加</h2><form class="panel" id="f-day"><div class="row"><label class="f">日付<input type="date" id="d-date" required value="' + today() + '"></label>' +
+        '<label class="f">メモ（任意）<input type="text" id="d-note" maxlength="40" placeholder="例：新歓1回目"></label></div><button class="btn primary" type="submit">この日程を作る</button></form>' +
+        (Store.mode === "firebase" ? '<button class="btn" type="button" data-copy-link>部員に送るリンクをコピー</button>' : "") + "</section>";
+    }
+    h += "<section><h2>" + (canEdit ? "日程一覧" : "ごはん会の担当") + " <small>" + days.length + "件</small></h2>";
+    if (!days.length) h += '<ul class="list"><li class="blank">' + (canEdit ? "上で日付を入れて日程を作ると、ここに並びます。" : "まだ公開された担当はありません。") + "</li></ul>";
+    days.forEach((d) => {
+      const nF = Object.keys(d.fGroup || {}).length;
+      h += '<div class="day tap" data-open-day="' + d.id + '" tabindex="0" role="button"><div class="day-h"><div><b>' + fmtDate(d.date) + '</b> <span class="sub">' + esc(d.note || "") + "</span></div>" +
+        '<span class="status st-' + (d.status || "draft") + '">' + STATUS[d.status || "draft"] + "</span></div>" +
+        (canEdit ? '<p class="hint">1年生 ' + nF + "人・" + (d.groups || []).length + "グループ</p>" : groupSummary(d)) + "</div>";
+    });
+    return h + "</section>";
+  }
+
+  function dayDetailView(id) {
+    const d = { id, ...state.days[id] };
+    return '<section><button class="btn link" data-back type="button">← 日程一覧</button><div class="day"><div class="day-h"><div><b>' + fmtDate(d.date) +
+      '</b> <span class="sub">' + esc(d.note || "") + '</span></div><span class="status st-' + d.status + '">' + STATUS[d.status] + "</span></div>" + groupSummary(d) + "</div></section>";
+  }
+
+  // ---------- 日程の編集（1〜6の流れ） ----------
+  function dayEditor(id) {
+    const d = state.days[id];
+    const locked = d.status === "done";
+    const F = freshmenArr().sort((a, b) => a.name.localeCompare(b.name, "ja"));
+    const times = freshmanTimes();
+    const fg = d.fGroup || {};
+    const groups = d.groups || [];
+    const S = state.seniors;
+    let h = '<section><button class="btn link" data-back type="button">← 日程一覧</button>' +
+      '<div class="day"><div class="day-h"><div><b>' + fmtDate(d.date) + '</b> <span class="sub">' + esc(d.note || "") + "</span></div>" +
+      '<span class="status st-' + d.status + '">' + STATUS[d.status] + "</span></div>" +
+      (locked ? '<p class="hint">ポイント反映済みのため編集できません。直すときは一番下の「反映を取り消す」を使います。</p>' : "") + "</div></section>";
+
+    // 2. 1年生を選ぶ
+    const nSel = Object.keys(fg).length;
+    h += '<section><h2><span><span class="step">2</span>連れていく1年生</span><small>' + nSel + "人</small></h2>";
+    if (!F.length) h += '<ul class="list"><li class="blank">1年生タブで1年生を登録すると、ここから選べます。</li></ul>';
+    else {
+      h += '<details' + (nSel && groups.some((g) => (g.sIds || []).length) ? "" : " open") + '><summary>1年生を選ぶ（' + nSel + "/" + F.length + '人）</summary><ul class="list" style="margin-top:6px">' +
+        F.map((p) => '<li style="grid-template-columns:1fr"><label class="check"><input type="checkbox" data-pick-f="' + p.id + '"' + (p.id in fg ? " checked" : "") + (locked ? " disabled" : "") +
+          '><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + '</small></div><div class="pt">' + (times[p.id] || 0) + "<small>回</small></div></label></li>").join("") + "</ul></details>";
+    }
+    h += "</section>";
+
+    // 3. グループ分け & 4. 必要人数
+    h += '<section><h2><span><span class="step">3</span>グループ分け<span class="step" style="margin-left:6px">4</span>必要な新上級生</span></h2>' +
+      '<div class="panel"><div class="row" style="align-items:flex-end"><div class="f">グループ数<div class="stepper"><button type="button" data-gcount="-1" aria-label="減らす"' + (locked ? " disabled" : "") + '>−</button><output class="num">' + groups.length +
+      '</output><button type="button" data-gcount="1" aria-label="増やす"' + (locked ? " disabled" : "") + ">＋</button></div></div>" +
+      '<button class="btn" type="button" data-split' + (locked || !nSel || !groups.length ? " disabled" : "") + ">1年生を男女均等に分ける</button></div>";
+    if (groups.length && nSel) {
+      h += '<ul class="list">' + F.filter((p) => p.id in fg).map((p) =>
+        '<li style="grid-template-columns:1fr auto"><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + '</small></div><select class="mini" data-fgroup="' + p.id + '"' + (locked ? " disabled" : "") + ">" +
+        groups.map((_, gi) => '<option value="' + gi + '"' + (fg[p.id] === gi ? " selected" : "") + ">グループ" + GL[gi] + "</option>").join("") + "</select></li>").join("") + "</ul>";
+    }
+    if (groups.length) {
+      h += '<div style="display:flex;flex-direction:column;gap:8px">' + groups.map((g, gi) => {
+        const fr = F.filter((p) => fg[p.id] === gi);
+        const m = fr.filter((p) => p.gender === "男").length;
+        return '<div class="grp-h" style="border:1px solid var(--line);border-radius:10px"><span style="display:flex;gap:8px;align-items:center"><span class="gl">' + GL[gi] + '</span><span class="mf">1年 男' + m + "・女" + (fr.length - m) +
+          '</span></span><span style="display:flex;gap:8px;align-items:center"><span class="hint">新上級生</span><div class="stepper sm"><button type="button" data-need="' + gi + ':-1" aria-label="減らす"' + (locked ? " disabled" : "") + '>−</button><output class="num">' + (g.need || 0) +
+          '</output><button type="button" data-need="' + gi + ':1" aria-label="増やす"' + (locked ? " disabled" : "") + ">＋</button></div></span></div>";
+      }).join("") + "</div>";
+    } else h += '<p class="hint">グループ数を1以上にしてください。</p>';
+    h += "</div></section>";
+
+    // 欠席者
+    const seniors = seniorsArr().sort(L.byPriority(ui.rand));
+    const absent = new Set(d.absent || []);
+    h += '<section><h2><span><span class="step">5</span>自動で振り分け</span></h2><div class="panel">' +
+      '<details><summary>この日に来られない新上級生（' + absent.size + '人）</summary><ul class="list" style="margin-top:6px">' +
+      (seniors.length ? seniors.map((p) => '<li style="grid-template-columns:1fr"><label class="check"><input type="checkbox" data-absent="' + p.id + '"' + (absent.has(p.id) ? " checked" : "") + (locked ? " disabled" : "") +
+        '><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + '</small></div><div class="pt">' + (p.points || 0) + "<small>pt</small></div></label></li>").join("")
+        : '<li class="blank">新上級生タブで登録してください。</li>') + "</ul></details>";
+    const need = groups.reduce((a, g) => a + (g.need || 0), 0);
+    const avail = seniors.filter((p) => !absent.has(p.id)).length;
+    h += '<p class="hint">必要 ' + need + "人 ／ 来られる新上級生 " + avail + "人。ごはんポイントが少ない人から選び、男女の均等 → 3年生1人以上 の順に考えてグループへ入れます。</p>" +
+      '<button class="btn primary" type="button" data-auto' + (locked || !need ? " disabled" : "") + ">" + (groups.some((g) => (g.sIds || []).length) ? "もう一度振り分ける" : "振り分ける") + "</button></div></section>";
+
+    // 6. 結果の確認と手動調整
+    if (groups.some((g) => (g.sIds || []).length)) {
+      const assigned = new Set(groups.flatMap((g) => g.sIds || []));
+      h += '<section><h2><span><span class="step">6</span>結果の確認</span><small>選び直しはプルダウンで</small></h2>';
+      groups.forEach((g, gi) => {
+        const fr = F.filter((p) => fg[p.id] === gi);
+        const sr = (g.sIds || []).map((sid) => S[sid] && { id: sid, ...S[sid] }).filter(Boolean);
+        const chk = L.groupWarnings(fr, sr, g.need || 0);
+        h += '<div class="grp"><div class="grp-h"><span style="display:flex;gap:8px;align-items:center"><span class="gl">' + GL[gi] + '</span><span class="mf">計' + (fr.length + sr.length) + "人 男" + chk.male + "・女" + chk.female + '</span></span><div class="badges">' +
+          (chk.warnings.length ? chk.warnings.map((w) => '<span class="badge ng">' + w + "</span>").join("") : '<span class="badge ok">条件OK</span>') + "</div></div>" +
+          '<div class="grp-b"><div class="grp-row"><span>1年生</span><div class="names">' + (fr.map((p) => nameTag(p)).join("") || '<span class="hint">なし</span>') + "</div></div><div>" +
+          sr.map((p) => '<div class="slot"><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + (p.points || 0) + "pt・" + (p.count || 0) + '回</small></div>' + moveSelect(p.id, gi, groups.length, locked) + "</div>").join("") +
+          "</div></div></div>";
+      });
+      const bench = seniors.filter((p) => !assigned.has(p.id) && !absent.has(p.id));
+      if (bench.length) {
+        h += '<details><summary>控えの新上級生（' + bench.length + '人）から入れる</summary><ul class="list" style="margin-top:6px">' +
+          bench.map((p) => '<li style="grid-template-columns:1fr auto"><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + (p.points || 0) + "pt・" + (p.count || 0) + "回</small></div>" + moveSelect(p.id, -1, groups.length, locked) + "</li>").join("") + "</ul></details>";
+      }
+      h += "</section>";
+    }
+
+    // 公開・終了
+    h += '<section><h2>この日の操作</h2><div class="panel">';
+    if (d.status === "draft") h += '<button class="btn yolk" type="button" data-status="published">この振り分けを部員に公開する</button><p class="hint">公開すると、ログインしていない部員にもこの日の担当が見えます。</p>';
+    if (d.status === "published") h += '<button class="btn good" type="button" data-finish>ご飯会が終わった（ポイントを反映）</button><button class="btn" type="button" data-status="draft">公開をやめて準備中に戻す</button>' +
+      '<p class="hint">反映すると、行った新上級生は回数+1・ポイントが「100＋回数×50」に、行っていない人は「(最大回数−自分の回数+1)×15」減ります。</p>';
+    if (d.status === "done") h += '<button class="btn danger" type="button" data-undo>ポイント反映を取り消す</button><p class="hint">この日より後に反映した日程がある場合は、そちらから先に取り消してください。</p>';
+    h += '<div class="row"><label class="f">日付<input type="date" id="e-date" value="' + esc(d.date) + '"' + (locked ? " disabled" : "") + '></label><label class="f">メモ<input type="text" id="e-note" maxlength="40" value="' + esc(d.note || "") + '"></label></div>' +
+      '<button class="btn danger" type="button" data-del-day>この日程を削除</button></div></section>';
+    return h;
+  }
+
+  function moveSelect(sid, cur, n, locked) {
+    let o = '<select class="mini" data-move="' + sid + '"' + (locked ? " disabled" : "") + ">";
+    for (let i = 0; i < n; i++) o += '<option value="' + i + '"' + (cur === i ? " selected" : "") + ">" + GL[i] + "へ</option>";
+    o += '<option value="-1"' + (cur === -1 ? " selected" : "") + ">" + (cur === -1 ? "控え" : "外す") + "</option></select>";
+    return o;
+  }
+
+  // ---------- 新上級生 ----------
+  function seniorsView() {
+    const list = seniorsArr().sort(L.byPriority(ui.rand));
+    let h = "";
+    if (canEdit) {
+      h += '<section><h2>新上級生を追加</h2><form class="panel" id="f-senior"><label class="f">名前<input type="text" id="s-name" required maxlength="30" autocomplete="off" placeholder="例：山田 太郎"></label>' +
+        '<div class="row"><div class="f">学年<div class="seg" data-seg="s-grade"><button type="button" data-v="2" aria-pressed="true">2年</button><button type="button" data-v="3" aria-pressed="false">3年</button></div></div>' +
+        '<div class="f">性別<div class="seg" data-seg="s-gender"><button type="button" data-v="男" aria-pressed="true">男</button><button type="button" data-v="女" aria-pressed="false">女</button></div></div></div>' +
+        '<div class="row"><label class="f">今までご飯に行った回数<input type="number" id="s-count" min="0" max="999" value="0" inputmode="numeric"></label>' +
+        '<label class="f">ごはんポイント<input type="number" id="s-points" value="0" inputmode="numeric"></label></div>' +
+        '<button class="btn primary" type="submit">追加する</button></form></section>';
+    }
+    h += '<section><h2>' + (canEdit ? "新上級生一覧" : "ごはんポイント") + " <small>ポイントが少ない人ほど次の担当に近い</small></h2><ul class=\"list\">" +
+      (list.length ? list.map((p, i) => '<li class="' + (canEdit ? "tap" : "") + '"' + (canEdit ? ' data-edit-s="' + p.id + '" tabindex="0" role="button"' : "") + '><span class="mark">' + (i + 1) +
+        '</span><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + "行った回数 " + (p.count || 0) + '</small></div><div class="pt">' + (p.points || 0) + "<small>pt</small></div></li>").join("")
+        : '<li class="blank">' + (canEdit ? "上のフォームから2・3年生を追加してください。" : "まだ登録がありません。") + "</li>") + "</ul></section>";
+    return h;
+  }
+
+  // ---------- 1年生 ----------
+  function freshmenView() {
+    const list = freshmenArr().sort((a, b) => a.name.localeCompare(b.name, "ja"));
+    const times = freshmanTimes();
+    return '<section><h2>1年生を追加</h2><form class="panel" id="f-fresh"><label class="f">名前<input type="text" id="fr-name" required maxlength="30" autocomplete="off" placeholder="例：佐藤 花子"></label>' +
+      '<div class="f">性別<div class="seg" data-seg="fr-gender"><button type="button" data-v="男" aria-pressed="true">男</button><button type="button" data-v="女" aria-pressed="false">女</button></div></div>' +
+      '<button class="btn primary" type="submit">追加する</button></form></section>' +
+      '<section><h2>1年生一覧 <small>' + list.length + '人</small></h2><ul class="list">' +
+      (list.length ? list.map((p) => '<li class="tap" data-edit-f="' + p.id + '" tabindex="0" role="button"><span class="mark">' + (p.gender === "女" ? "♀" : "♂") + '</span><div class="who"><b>' + esc(p.name) +
+        '</b><small>連れていってもらった回数</small></div><div class="pt">' + (times[p.id] || 0) + "<small>回</small></div></li>").join("")
+        : '<li class="blank">上のフォームから1年生を追加すると、日程の中で選べるようになります。</li>') + "</ul></section>";
+  }
+
+  // ================= 操作 =================
+  const segVal = (name) => { const b = $('[data-seg="' + name + '"] button[aria-pressed="true"]'); return b ? b.dataset.v : null; };
+
+  function updDay(fn, msg) { const id = ui.dayId; return save((s) => fn(s.days[id], s), msg); }
+
+  function setGroupCount(day, n) {
+    const groups = day.groups || [];
+    n = Math.max(0, Math.min(GL.length, n));
+    while (groups.length < n) groups.push({ need: 2, sIds: [] });
+    while (groups.length > n) groups.pop();
+    day.groups = groups;
+    Object.keys(day.fGroup || {}).forEach((fid) => { if (day.fGroup[fid] >= n) day.fGroup[fid] = Math.max(0, n - 1); });
+  }
+
+  function autoAssign(day, s) {
+    const S = s.seniors, F = s.freshmen;
+    const absent = new Set(day.absent || []);
+    ui.rand = {}; Object.keys(S).forEach((id) => { ui.rand[id] = Math.random(); });
+    const cands = Object.entries(S).filter(([id]) => !absent.has(id)).map(([id, v]) => ({ id, ...v }));
+    const total = day.groups.reduce((a, g) => a + (g.need || 0), 0);
+    const chosen = L.selectSeniors(cands, total, ui.rand);
+    const groups = day.groups.map((g, gi) => ({
+      need: g.need || 0,
+      freshmen: Object.entries(day.fGroup || {}).filter(([, x]) => x === gi).map(([id]) => F[id] && { id, ...F[id] }).filter(Boolean),
+    }));
+    const res = L.distribute(groups, chosen);
+    day.groups.forEach((g, gi) => { g.sIds = res[gi]; });
+    return chosen.length < total ? "来られる新上級生が" + (total - chosen.length) + "人足りません" : "振り分けました。内容を確認してください";
+  }
+
+  document.addEventListener("click", (ev) => {
+    const t = ev.target;
+    const tab = t.closest("[data-tab]");
+    if (tab) { go({ tab: tab.dataset.tab, dayId: null }); return; }
+    if (t.closest("#b-login")) { canEdit ? firebase.auth().signOut().then(() => toast("ログアウトしました")) : openLogin(); return; }
+    if (t.closest("[data-back]")) { go({ dayId: null }); return; }
+    if (t.closest("[data-copy-link]")) {
+      const url = location.href;
+      (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject())
+        .then(() => toast("リンクをコピーしました。LINEなどで部員に送ってください"), () => toast(url));
+      return;
+    }
+    const od = t.closest("[data-open-day]");
+    if (od) { go({ dayId: od.dataset.openDay }); return; }
+    const seg = t.closest("[data-seg] button");
+    if (seg) { $$("button", seg.parentNode).forEach((b) => b.setAttribute("aria-pressed", b === seg)); return; }
+    const es = t.closest("[data-edit-s]");
+    if (es && canEdit) { openSenior(es.dataset.editS); return; }
+    const ef = t.closest("[data-edit-f]");
+    if (ef && canEdit) { openFreshman(ef.dataset.editF); return; }
+    if (!canEdit || !ui.dayId) return;
+
+    const gc = t.closest("[data-gcount]");
+    if (gc) { updDay((d) => setGroupCount(d, (d.groups || []).length + Number(gc.dataset.gcount))); return; }
+    const nd = t.closest("[data-need]");
+    if (nd) { const [gi, dv] = nd.dataset.need.split(":").map(Number); updDay((d) => { d.groups[gi].need = Math.max(0, Math.min(20, (d.groups[gi].need || 0) + dv)); }); return; }
+    if (t.closest("[data-split]")) {
+      updDay((d, s) => {
+        const fr = Object.keys(d.fGroup || {}).map((id) => s.freshmen[id] && { id, ...s.freshmen[id] }).filter(Boolean);
+        d.fGroup = L.splitFreshmen(fr, d.groups.length);
+      }, "1年生をグループに分けました");
+      return;
+    }
+    if (t.closest("[data-auto]")) { let msg; updDay((d, s) => { msg = autoAssign(d, s); }).then((ok) => ok && toast(msg)); return; }
+    const st = t.closest("[data-status]");
+    if (st) { const v = st.dataset.status; updDay((d) => { d.status = v; }, v === "published" ? "部員に公開しました" : "準備中に戻しました"); return; }
+    if (t.closest("[data-finish]")) {
+      const b = t.closest("[data-finish]");
+      if (!armed(b, "もう一度押すとポイントを反映します")) return;
+      updDay((d, s) => {
+        const went = (d.groups || []).flatMap((g) => g.sIds || []).filter((id) => s.seniors[id]);
+        const r = L.applyMeal(Object.entries(s.seniors).map(([id, v]) => ({ id, ...v })), went);
+        Object.entries(r.next).forEach(([id, v]) => { s.seniors[id].count = v.count; s.seniors[id].points = v.points; });
+        d.before = r.before; d.appliedAt = Date.now(); d.status = "done";
+      }, "ポイントを反映しました");
+      return;
+    }
+    if (t.closest("[data-undo]")) {
+      const b = t.closest("[data-undo]");
+      const d0 = state.days[ui.dayId];
+      const later = Object.values(state.days).some((x) => x.status === "done" && (x.appliedAt || 0) > (d0.appliedAt || 0));
+      if (later) { toast("後に反映した日程があります。そちらを先に取り消してください"); return; }
+      if (!armed(b, "もう一度押すと取り消します")) return;
+      updDay((d, s) => {
+        Object.entries(d.before || {}).forEach(([id, v]) => { if (s.seniors[id]) { s.seniors[id].count = v.count; s.seniors[id].points = v.points; } });
+        delete d.before; delete d.appliedAt; d.status = "published";
+      }, "ポイント反映を取り消しました");
+      return;
+    }
+    if (t.closest("[data-del-day]")) {
+      const b = t.closest("[data-del-day]");
+      if (state.days[ui.dayId].status === "done") { toast("ポイント反映を取り消してから削除してください"); return; }
+      if (!armed(b, "もう一度押すと削除します")) return;
+      const id = ui.dayId;
+      ui.dayId = null;
+      save((s) => { delete s.days[id]; }, "日程を削除しました");
+    }
+  });
+
+  function armed(b, text) {
+    if (b.classList.contains("armed")) return true;
+    const orig = b.textContent;
+    b.classList.add("armed"); b.textContent = text;
+    setTimeout(() => { if (b.isConnected) { b.classList.remove("armed"); b.textContent = orig; } }, 3500);
+    return false;
+  }
+
+  document.addEventListener("keydown", (ev) => {
+    if ((ev.key === "Enter" || ev.key === " ") && ev.target.matches("[role=button][tabindex]")) { ev.preventDefault(); ev.target.click(); }
+  });
+
+  document.addEventListener("change", (ev) => {
+    const t = ev.target;
+    if (!canEdit || !ui.dayId) return;
+    if (t.dataset.pickF) {
+      const id = t.dataset.pickF, on = t.checked;
+      updDay((d) => {
+        d.fGroup = d.fGroup || {};
+        if (on) { if (!(d.groups || []).length) setGroupCount(d, 1); d.fGroup[id] = 0; } else delete d.fGroup[id];
+      });
+    } else if (t.dataset.fgroup) {
+      const id = t.dataset.fgroup, gi = Number(t.value);
+      updDay((d) => { d.fGroup[id] = gi; });
+    } else if (t.dataset.absent) {
+      const id = t.dataset.absent, on = t.checked;
+      updDay((d) => {
+        const a = new Set(d.absent || []); on ? a.add(id) : a.delete(id); d.absent = Array.from(a);
+        if (on) d.groups.forEach((g) => { g.sIds = (g.sIds || []).filter((x) => x !== id); });
+      });
+    } else if (t.dataset.move) {
+      const id = t.dataset.move, gi = Number(t.value);
+      updDay((d) => {
+        d.groups.forEach((g) => { g.sIds = (g.sIds || []).filter((x) => x !== id); });
+        if (gi >= 0) d.groups[gi].sIds.push(id);
+      });
+    } else if (t.id === "e-date" && t.value) {
+      const v = t.value; updDay((d) => { d.date = v; }, "日付を変更しました");
+    } else if (t.id === "e-note") {
+      const v = t.value.trim().slice(0, 40); updDay((d) => { d.note = v; }, "メモを保存しました");
+    }
+  });
+
+  document.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const f = ev.target;
+    if (!canEdit) return;
+    if (f.id === "f-day") {
+      const id = uid();
+      const date = $("#d-date").value || today(), note = $("#d-note").value.trim().slice(0, 40);
+      save((s) => { s.days[id] = { date, note, status: "draft", fGroup: {}, groups: [{ need: 2, sIds: [] }], absent: [], createdAt: Date.now() }; })
+        .then((ok) => ok && go({ dayId: id }));
+    } else if (f.id === "f-senior") {
+      const name = $("#s-name").value.trim().slice(0, 30);
+      if (!name) return;
+      if (Object.values(state.seniors).some((p) => p.name === name)) { toast("同じ名前の人がすでにいます"); return; }
+      const rec = { name, grade: Number(segVal("s-grade")), gender: segVal("s-gender"), count: Math.max(0, parseInt($("#s-count").value, 10) || 0), points: parseInt($("#s-points").value, 10) || 0 };
+      save((s) => { s.seniors[uid()] = rec; }, name + " さんを追加しました").then((ok) => ok && $("#s-name") && $("#s-name").focus());
+    } else if (f.id === "f-fresh") {
+      const name = $("#fr-name").value.trim().slice(0, 30);
+      if (!name) return;
+      if (Object.values(state.freshmen).some((p) => p.name === name)) { toast("同じ名前の人がすでにいます"); return; }
+      const rec = { name, gender: segVal("fr-gender") };
+      save((s) => { s.freshmen[uid()] = rec; }, name + " さんを追加しました").then((ok) => ok && $("#fr-name") && $("#fr-name").focus());
+    }
+  });
+
+  // ================= シート（編集・ログイン） =================
+  function sheet(html, onReady) {
+    const root = $("#sheet-root");
+    root.innerHTML = '<div class="scrim" id="scrim"><div class="sheet" role="dialog" aria-modal="true">' + html + "</div></div>";
+    const close = () => { root.innerHTML = ""; document.removeEventListener("keydown", onKey); };
+    function onKey(e) { if (e.key === "Escape") close(); }
+    document.addEventListener("keydown", onKey);
+    $("#scrim").addEventListener("click", (e) => { if (e.target.id === "scrim" || e.target.closest("[data-close]")) close(); });
+    onReady(close);
+  }
+  const segHtml = (name, opts, cur) => '<div class="seg" data-seg="' + name + '">' + opts.map(([v, l]) => '<button type="button" data-v="' + v + '" aria-pressed="' + (String(v) === String(cur)) + '">' + l + "</button>").join("") + "</div>";
+
+  function openSenior(id) {
+    const p = state.seniors[id]; if (!p) return;
+    sheet('<h3>' + esc(p.name) + '</h3><label class="f">名前<input type="text" id="x-name" maxlength="30" value="' + esc(p.name) + '"></label>' +
+      '<div class="row"><div class="f">学年' + segHtml("x-grade", [[2, "2年"], [3, "3年"]], p.grade) + '</div><div class="f">性別' + segHtml("x-gender", [["男", "男"], ["女", "女"]], p.gender) + "</div></div>" +
+      '<div class="row"><label class="f">今までご飯に行った回数<input type="number" id="x-count" min="0" value="' + (p.count || 0) + '" inputmode="numeric"></label>' +
+      '<label class="f">ごはんポイント<input type="number" id="x-points" value="' + (p.points || 0) + '" inputmode="numeric"></label></div>' +
+      '<div class="btns"><button class="btn" type="button" data-close>閉じる</button><button class="btn primary" type="button" id="x-save">保存</button></div>' +
+      '<button class="btn danger" type="button" id="x-del">この人を削除</button>', (close) => {
+      $("#x-save").onclick = () => {
+        const name = $("#x-name").value.trim().slice(0, 30); if (!name) { toast("名前を入力してください"); return; }
+        const rec = { name, grade: Number(segVal("x-grade")), gender: segVal("x-gender"), count: Math.max(0, parseInt($("#x-count").value, 10) || 0), points: parseInt($("#x-points").value, 10) || 0 };
+        save((s) => { Object.assign(s.seniors[id], rec); }, "保存しました").then((ok) => ok && close());
+      };
+      $("#x-del").onclick = (e) => {
+        if (!armed(e.currentTarget, "もう一度押すと削除します")) return;
+        save((s) => { delete s.seniors[id]; Object.values(s.days).forEach((d) => { if (d.status !== "done") (d.groups || []).forEach((g) => { g.sIds = (g.sIds || []).filter((x) => x !== id); }); }); }, "削除しました").then((ok) => ok && close());
+      };
+    });
+  }
+
+  function openFreshman(id) {
+    const p = state.freshmen[id]; if (!p) return;
+    sheet('<h3>' + esc(p.name) + '</h3><label class="f">名前<input type="text" id="x-name" maxlength="30" value="' + esc(p.name) + '"></label>' +
+      '<div class="f">性別' + segHtml("x-gender", [["男", "男"], ["女", "女"]], p.gender) + "</div>" +
+      '<div class="btns"><button class="btn" type="button" data-close>閉じる</button><button class="btn primary" type="button" id="x-save">保存</button></div>' +
+      '<button class="btn danger" type="button" id="x-del">この人を削除</button>', (close) => {
+      $("#x-save").onclick = () => {
+        const name = $("#x-name").value.trim().slice(0, 30); if (!name) { toast("名前を入力してください"); return; }
+        const gender = segVal("x-gender");
+        save((s) => { Object.assign(s.freshmen[id], { name, gender }); }, "保存しました").then((ok) => ok && close());
+      };
+      $("#x-del").onclick = (e) => {
+        if (!armed(e.currentTarget, "もう一度押すと削除します")) return;
+        save((s) => { delete s.freshmen[id]; Object.values(s.days).forEach((d) => { if (d.status !== "done" && d.fGroup) delete d.fGroup[id]; }); }, "削除しました").then((ok) => ok && close());
+      };
+    });
+  }
+
+  function openLogin() {
+    sheet('<h3>編集ログイン</h3><p class="hint">編集できるのは管理者だけです。部員の方はログインしなくても担当を見られます。</p>' +
+      '<form id="x-login" style="display:flex;flex-direction:column;gap:12px"><label class="f">メールアドレス<input type="email" id="x-mail" autocomplete="username" required></label>' +
+      '<label class="f">パスワード<input type="password" id="x-pass" autocomplete="current-password" required></label>' +
+      '<div class="btns"><button class="btn" type="button" data-close>閉じる</button><button class="btn primary" type="submit">ログイン</button></div></form>', (close) => {
+      $("#x-login").addEventListener("submit", (e) => {
+        e.preventDefault(); e.stopPropagation();
+        firebase.auth().signInWithEmailAndPassword($("#x-mail").value.trim(), $("#x-pass").value)
+          .then(() => { close(); toast("ログインしました"); })
+          .catch(() => toast("メールアドレスかパスワードが違います"));
+      });
+    });
+  }
+
+  let toastT;
+  function toast(text) {
+    let el = $(".toast"); if (!el) { el = document.createElement("div"); el.className = "toast"; el.setAttribute("role", "status"); document.body.appendChild(el); }
+    el.textContent = text; clearTimeout(toastT); toastT = setTimeout(() => el.remove(), 2600);
+  }
+
+  window.addEventListener("hashchange", () => location.reload());
+  render();
+  startStore();
+})();
+</script>
+</body>
+</html>
