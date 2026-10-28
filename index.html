@@ -26,6 +26,8 @@
 :root {
   --bg: #F1F3F6; --surface: #FFFFFF; --ink: #18233A; --muted: #5E6880; --line: #DCE0E8;
   --yolk: #F2A81D; --yolk-soft: #FDF0D3; --yolk-ink: #3A2600; --good: #23855B; --good-soft: #E1F3EA; --warn: #B4471F; --warn-soft: #FBE7DF;
+  /* 学年の色（1年 緑・2年 青・3年 橙・4年 紫） */
+  --g1-bg: #E1F3EA; --g1-ink: #1D6B47; --g2-bg: #E1ECFB; --g2-ink: #1F4E96; --g3-bg: #FDF0D3; --g3-ink: #7A4B00; --g4-bg: #EEE5FA; --g4-ink: #5B3596;
   --f-display: "Dela Gothic One", "Hiragino Kaku Gothic StdN", "Yu Gothic", sans-serif;
   --f-body: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
   --f-num: "IBM Plex Mono", ui-monospace, Menlo, monospace;
@@ -35,6 +37,7 @@
   :root {
     --bg: #0F1522; --surface: #182133; --ink: #E8ECF4; --muted: #9AA4B9; --line: #2A3549;
     --yolk: #F5B83A; --yolk-soft: #33280F; --yolk-ink: #F9E2B0; --good: #4CC08A; --good-soft: #15301F; --warn: #F08A62; --warn-soft: #3A1C12;
+    --g1-bg: #15301F; --g1-ink: #8EDDB5; --g2-bg: #16243D; --g2-ink: #9DC0F5; --g3-bg: #33280F; --g3-ink: #F9D38A; --g4-bg: #2A1E3D; --g4-ink: #CDB2F5;
     color-scheme: dark;
   }
 }
@@ -88,7 +91,12 @@ h2 .step { font-family: var(--f-num); color: var(--yolk-ink); background: var(--
 .pt { text-align: right; font-family: var(--f-num); font-size: 17px; line-height: 1; white-space: nowrap; }
 .pt small { display: block; font-family: var(--f-body); font-size: 11px; color: var(--muted); margin-top: 3px; }
 .chip { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 6px; background: var(--bg); color: var(--muted); margin-right: 4px; white-space: nowrap; }
-.chip.g3 { background: var(--yolk-soft); color: var(--yolk-ink); }
+.chip.g1 { background: var(--g1-bg); color: var(--g1-ink); }
+.chip.g2 { background: var(--g2-bg); color: var(--g2-ink); }
+.chip.g3 { background: var(--g3-bg); color: var(--g3-ink); }
+.chip.g4 { background: var(--g4-bg); color: var(--g4-ink); }
+.chip.fm { background: var(--ink); color: var(--bg); }
+.names em.g1 { color: var(--g1-ink); } .names em.g2 { color: var(--g2-ink); } .names em.g3 { color: var(--g3-ink); } .names em.g4 { color: var(--g4-ink); }
 .chip.dev { margin-left: 6px; margin-right: 0; font-family: ui-monospace, monospace; }
 .chip.ng { background: var(--warn-soft); color: var(--warn); }
 .fixed-name { display: flex; align-items: baseline; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
@@ -142,6 +150,9 @@ textarea { font: inherit; font-size: 16px; color: var(--ink); background: var(--
 .hint { font-size: 12px; color: var(--muted); margin: 0; }
 .check { display: grid; grid-template-columns: 24px 1fr auto; gap: 10px; align-items: center; cursor: pointer; }
 .check input { width: 22px; height: 22px; accent-color: var(--ink); margin: 0; }
+.fm-check { grid-template-columns: 24px 1fr; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.fm-check span { display: flex; flex-direction: column; }
+.fm-check small { color: var(--muted); font-size: 12px; line-height: 1.5; }
 details summary { cursor: pointer; font-size: 13px; font-weight: 700; color: var(--muted); padding: 4px 0; }
 
 /* day cards */
@@ -648,11 +659,12 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
   const freshmenArr = () => Object.entries(state.freshmen).map(([id, v]) => ({ id, ...v }));
   const daysArr = () => Object.entries(state.days).map(([id, v]) => ({ id, ...v }))
     .sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.createdAt || 0) - (a.createdAt || 0));
-  const personLine = (p) => (p.grade ? '<span class="chip' + (Number(p.grade) === 3 ? " g3" : "") + '">' + p.grade + "年</span>" : "") +
-    '<span class="chip">' + esc(p.gender) + "</span>";
+  // 学年ごとに色を分けたチップ。FM は編集者にだけ見せる
+  const gradeChip = (g) => (g ? '<span class="chip g' + Number(g) + '">' + Number(g) + "年</span>" : "");
+  const personLine = (p) => gradeChip(p.grade) + '<span class="chip">' + esc(p.gender) + "</span>" + (canEdit && p.fm ? '<span class="chip fm">FM</span>' : "");
   // 部員にはポイントを整数で、編集者には小数1桁まで見せる
   const fmtPt = (v) => { const n = Number(v) || 0; return String(canEdit ? Math.round(n * 10) / 10 : Math.round(n)); };
-  const nameTag = (p, showGrade) => "<span>" + esc(p.name) + (showGrade && p.grade ? "<em>" + p.grade + "年</em>" : "") + "</span>";
+  const nameTag = (p, showGrade) => "<span>" + esc(p.name) + (showGrade && p.grade ? '<em class="g' + Number(p.grade) + '">' + p.grade + "年</em>" : "") + "</span>";
 
   function freshmanTimes() {
     const t = {};
@@ -836,6 +848,9 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       (seniors.length ? seniors.slice().sort((a, b) => a.name.localeCompare(b.name, "ja")).map((p) => '<li style="grid-template-columns:1fr"><label class="check"><input type="checkbox" data-absent="' + p.id + '"' + (absent.has(p.id) ? " checked" : "") + (locked ? " disabled" : "") +
         '><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + '</small></div><div class="pt">' + fmtPt(p.points) + "<small>pt</small></div></label></li>").join("")
         : '<li class="blank">新上級生タブで登録してください。</li>') + "</ul></details>";
+    const nFm = seniors.filter((p) => p.fm).length;
+    h += '<button class="btn" type="button" data-absent-fm' + (locked || !nFm ? " disabled" : "") + ">FMメンバーを取り除く（" + nFm + "人）</button>" +
+      (nFm ? "" : '<p class="hint">FMの人は「部員」タブで各部員を開いて設定できます。</p>');
     const need = groups.reduce((a, g) => a + (g.need || 0), 0);
     const avail = seniors.filter((p) => !absent.has(p.id)).length;
     h += '<p class="hint">必要 ' + need + "人 ／ 来られる新上級生 " + avail + "人。1年生も含めて男女が均等になるよう、ごはんポイントが少ない人から選びます。グループは 男女のバランス → 新上級生の男女差2人以内 → 3年・2年の差1人以内 の順に整えます。</p>" +
@@ -894,7 +909,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
   function meField(id) {
     if (canEdit) return '<label class="f">名前（代理で送る）' + nameSelect(id) + "</label>";
     const p = myPerson();
-    return '<div class="f">名前<div class="fixed-name"><b>' + esc(p.name) + "</b><small>" + p.grade + "年・この端末でログイン中</small></div></div>";
+    return '<div class="f">名前<div class="fixed-name"><b>' + esc(p.name) + "</b><small>" + gradeChip(p.grade) + "この端末でログイン中</small></div></div>";
   }
   // 部員がまだ書けないときに投稿欄の代わりに出す案内。書けるなら ""
   function postGate(what) {
@@ -1044,13 +1059,15 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
 
   // 学年に合わせて保存先（1年 / 2・3年 / 4年）を移す。まだ終わっていない日程の振り分けからは外す
   const catOf = (grade) => (grade === 1 ? "freshmen" : grade === 4 ? "elders" : "seniors");
-  function updatePerson(pid, name, grade, gender) {
+  function updatePerson(pid, name, grade, gender, fm) {
     return save((s) => {
       s.elders = s.elders || {};
       const from = ["freshmen", "seniors", "elders"].find((k) => s[k][pid]);
       if (!from) return;
       const to = catOf(grade);
       const rec = Object.assign({}, s[from][pid], { name, gender });
+      // FM は2年生以上だけ
+      if (fm && grade >= 2) rec.fm = true; else delete rec.fm;
       if (to === "seniors") { rec.grade = grade; rec.count = rec.count || 0; rec.points = rec.points || 0; } else delete rec.grade;
       if (from !== to) {
         delete s[from][pid];
@@ -1087,8 +1104,9 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     sheet("<h3>" + esc(p.name) + "</h3>" +
       '<label class="f">名前<input type="text" id="x-name" maxlength="30" value="' + esc(p.name) + '"></label>' +
       '<div class="row"><div class="f">学年' + segHtml("x-grade", [[1, "1年"], [2, "2年"], [3, "3年"], [4, "4年"]], p.grade) + '</div><div class="f">性別' + segHtml("x-gender", [["男", "男"], ["女", "女"]], p.gender) + "</div></div>" +
+      '<label class="check fm-check"><input type="checkbox" id="x-fm"' + (p.fm ? " checked" : "") + "><span><b>FMに所属</b><small>2年生以上のみ。編集者にだけ表示されます。「FMメンバーを取り除く」で、その日に来られない人にまとめてチェックが入ります。</small></span></label>" +
       '<p class="hint">1年・2〜3年・4年の間で学年を変えると、まだ終わっていない日程の振り分けからは外れます。ごはんポイントと回数は残ります。</p>' +
-      '<button class="btn primary" type="button" id="x-save">名前・学年・性別を保存</button>' +
+      '<button class="btn primary" type="button" id="x-save">名前・学年・性別・FMを保存</button>' +
       '<h3 class="sub-h">ログイン</h3>' +
       (lg ? "<p>端末 <b>" + devCode(lg.uid) + "</b> でログイン中" + (tsMs(lg.at) ? "（" + fmtTime(tsMs(lg.at)) + "〜）" : "") + (bl ? '・<b class="ng-t">ブロック中</b>' : "") + "</p>" +
           '<div class="btns"><button class="btn" type="button" id="x-release">ログインを解除</button>' +
@@ -1108,7 +1126,9 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
         const name = $("#x-name").value.trim().slice(0, 30);
         if (!name) { toast("名前を入力してください"); return; }
         if (Object.values(people()).some((q) => q.id !== pid && q.name === name)) { toast("同じ名前の人がすでにいます"); return; }
-        updatePerson(pid, name, Number(segVal("x-grade")), segVal("x-gender")).then((ok) => ok && close());
+        const grade = Number(segVal("x-grade")), fm = $("#x-fm").checked;
+        if (fm && grade < 2) { toast("FMは2年生以上だけ設定できます"); return; }
+        updatePerson(pid, name, grade, segVal("x-gender"), fm).then((ok) => ok && close());
       };
       const rel = $("#x-release"), blk = $("#x-block"), ubl = $("#x-unblock");
       if (rel) rel.onclick = (e) => { if (armed(e.currentTarget, "もう一度押すと解除")) releaseOwner(lg.uid).then(close); };
@@ -1134,7 +1154,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     ui.chooserOpen = true;
     const step1 = () => "<h3>あなたはだれですか？</h3>" +
       '<p class="note-warn">※注意：本人以外の名前を選ばないようにしてください。一度名前を選ぶと変更することはできず、使用している端末で保存されます。</p>' +
-      '<label class="f">名前' + nameSelect("who-sel", namesMap(), "（ログイン済み）") + "</label>" +
+      '<label class="f">名前' + nameSelect("who-sel") + "</label>" +
       '<button class="btn primary" type="button" id="who-next">この名前にする</button>' +
       '<button class="btn" type="button" id="who-none">この中に名前がない</button>' +
       '<p class="hint">「この中に名前がない」を選ぶと、ログインせずにグループだけ見られます（コメントや領収書は使えません）。あとから画面上の「名前を決める」でいつでも選べます。</p>';
@@ -1146,7 +1166,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
         $("#who-next").onclick = () => {
           const p = people()[$("#who-sel").value];
           if (!p) { toast("名前を選んでください"); return; }
-          box.innerHTML = "<h3>確認</h3><p>本当に <b>" + esc(p.name) + "</b>（" + p.grade + "年）さんでよろしいですか？</p>" +
+          box.innerHTML = "<h3>確認</h3><p>本当に <b>" + esc(p.name) + "</b> " + gradeChip(p.grade) + "さんでよろしいですか？</p>" +
             '<p class="note-warn">決定すると、この端末ではほかの名前に変更できません。</p>' +
             '<button class="btn primary" type="button" id="who-ok">はい、' + esc(p.name) + " です</button>" +
             '<button class="btn" type="button" id="who-back">選び直す</button>';
@@ -1352,6 +1372,17 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
           Object.keys(s.freshmen).forEach((id) => { if (!(id in d.fGroup)) d.fGroup[id] = 0; });
         } else d.fGroup = {};
       }, on ? "1年生を全員選びました" : "1年生の選択を外しました");
+      return;
+    }
+    if (t.closest("[data-absent-fm]")) {
+      // FM に所属する新上級生を全員「この日に来られない」にして、振り分け済みなら外す
+      const fmIds = Object.entries(state.seniors).filter(([, p]) => p.fm).map(([id]) => id);
+      updDay((d) => {
+        const a = new Set(d.absent || []);
+        fmIds.forEach((id) => a.add(id));
+        d.absent = Array.from(a);
+        (d.groups || []).forEach((g) => { g.sIds = (g.sIds || []).filter((x) => !fmIds.includes(x)); });
+      }, "FMメンバー " + fmIds.length + "人を、この日に来られない人にしました");
       return;
     }
     if (t.closest("[data-auto]")) { let msg; updDay((d, s) => { msg = autoAssign(d, s); }).then((ok) => ok && toast(msg)); return; }
