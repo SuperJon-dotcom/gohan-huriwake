@@ -596,11 +596,16 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       h += '<div class="panel"><label class="f">名前' + nameSelect("r-name") + "</label>" +
         '<label class="f">領収書・レシートの画像<input type="file" id="r-file" accept="image/*"></label>' +
         (ui.rcImage ? '<img class="rc-prev" src="' + ui.rcImage + '" alt="選んだ画像">' : "") +
-        '<label class="f">備考（任意）<textarea id="r-note" maxlength="300" placeholder="例：グループA 合計8,400円（1年生3人分）"></textarea></label>' +
+        '<label class="f">備考（任意）<textarea id="r-note" maxlength="300" placeholder="１年生は全額、部員の補助は500円までになります。"></textarea></label>' +
         '<button class="btn primary" type="button" data-post-receipt' + (ui.rcBusy ? " disabled" : "") + ">" + (ui.rcBusy ? "アップロード中…" : "アップロード") + "</button></div>";
     } else h += '<p class="hint">アップロードできるのは公開中と終了後の日程だけです。</p>';
+    // 書いた人がこの日のどのグループにいたか（名前で照合）
+    const groupOf = {};
+    (d.groups || []).forEach((g, gi) => (g.sIds || []).forEach((sid) => { if (state.seniors[sid]) groupOf[state.seniors[sid].name] = gi; }));
+    Object.entries(d.fGroup || {}).forEach(([fid, gi]) => { if (state.freshmen[fid]) groupOf[state.freshmen[fid].name] = gi; });
     if (list.length) {
-      h += '<div class="grp">' + list.map((r) => '<div class="rc"><div class="cmt-h"><span><b>' + esc(r.name) + "</b>　" + fmtTime(r.at) + "</span>" +
+      h += '<div class="grp">' + list.map((r) => '<div class="rc"><div class="cmt-h"><span><b>' + esc(r.name) + "</b>" +
+        (r.name in groupOf ? '<span class="chip" style="margin-left:6px">グループ' + GL[groupOf[r.name]] + "</span>" : "") + "　" + fmtTime(r.at) + "</span>" +
         (canEdit ? '<button class="btn small danger" type="button" data-del-rc="' + esc(r.id) + '">削除</button>' : "") + "</div>" +
         '<img src="' + receiptUrl(r) + '" alt="' + esc(r.name) + 'さんの領収書" data-view-rc="' + esc(r.id) + '">' +
         (r.note ? "<p>" + esc(r.note) + "</p>" : "") + "</div>").join("") + "</div>";
@@ -616,7 +621,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     let h = '<section><h2>コメント <small>' + list.length + "件</small></h2>";
     if (open) {
       h += '<div class="panel"><label class="f">名前' + nameSelect("c-name") + "</label>" +
-        '<label class="f">内容<textarea id="c-text" maxlength="300" placeholder="例：都合が悪くなったので、グループAを〇〇さんに代わってもらいました"></textarea></label>' +
+        '<label class="f">内容<textarea id="c-text" maxlength="300" placeholder="欠席連絡はこちら。交代など当日の連絡は担当のメンバーが確定してから共有してください。"></textarea></label>' +
         '<button class="btn primary" type="button" data-post-comment>コメントを送る</button></div>';
     } else h += '<p class="hint">コメントできるのは公開中の日程だけです。</p>';
     if (list.length) {
@@ -636,7 +641,10 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
 
   // ---------- 新上級生 ----------
   function seniorsView() {
-    const list = seniorsArr().sort(L.byPriority(ui.rand));
+    const g = ui.ptGrade || "all";
+    const list = seniorsArr().filter((p) => g === "all" || String(p.grade) === g).sort(L.byPriority(ui.rand));
+    const filter = '<div class="seg" style="margin-bottom:8px">' + [["all", "全体"], ["2", "2年"], ["3", "3年"]].map(([v, l]) =>
+      '<button type="button" data-ptg="' + v + '" aria-pressed="' + (g === v) + '">' + l + "</button>").join("") + "</div>";
     let h = "";
     if (canEdit) {
       h += '<section><h2>新上級生を追加</h2><form class="panel" id="f-senior"><label class="f">名前<input type="text" id="s-name" required maxlength="30" autocomplete="off" placeholder="例：山田 太郎"></label>' +
@@ -646,10 +654,10 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
         '<label class="f">ごはんポイント<input type="number" id="s-points" value="0" step="any" inputmode="decimal"></label></div>' +
         '<button class="btn primary" type="submit">追加する</button></form></section>';
     }
-    h += '<section><h2>' + (canEdit ? "新上級生一覧" : "ごはんポイント") + " <small>ポイントが少ない人ほど次の担当に近い</small></h2><ul class=\"list\">" +
+    h += '<section><h2>' + (canEdit ? "新上級生一覧" : "ごはんポイント") + " <small>ポイントが少ない人ほど次の担当に近い</small></h2>" + filter + "<ul class=\"list\">" +
       (list.length ? list.map((p, i) => '<li class="' + (canEdit ? "tap" : "") + '"' + (canEdit ? ' data-edit-s="' + p.id + '" tabindex="0" role="button"' : "") + '><span class="mark">' + (i + 1) +
         '</span><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + "行った回数 " + (p.count || 0) + '</small></div><div class="pt">' + fmtPt(p.points) + "<small>pt</small></div></li>").join("")
-        : '<li class="blank">' + (canEdit ? "上のフォームから2・3年生を追加してください。" : "まだ登録がありません。") + "</li>") + "</ul></section>";
+        : '<li class="blank">' + (canEdit && g === "all" ? "上のフォームから2・3年生を追加してください。" : "まだ登録がありません。") + "</li>") + "</ul></section>";
     return h;
   }
 
@@ -715,6 +723,8 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       });
       return;
     }
+    const ptg = t.closest("[data-ptg]");
+    if (ptg) { ui.ptGrade = ptg.dataset.ptg; render(); return; }
     if (t.closest("[data-receipts]")) { go({ receipts: true }); return; }
     if (t.closest("[data-rc-back]")) { go({ receipts: false }); return; }
     const pr = t.closest("[data-post-receipt]");
