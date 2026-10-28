@@ -279,7 +279,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
   }
 
   // ================= 画面の状態 =================
-  const ui = { tab: "days", dayId: null, rand: {} };
+  const ui = { tab: "days", dayId: null, rand: {}, open: {} };
   try { const t = sessionStorage.getItem("gohan-ui"); if (t) Object.assign(ui, JSON.parse(t)); } catch (e) {}
   function go(patch) {
     Object.assign(ui, patch);
@@ -332,7 +332,19 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     else v.innerHTML = freshmenView();
     Object.entries(keep).forEach(([k, val]) => { const el = document.getElementById(k); if (el) el.value = val; });
     if (focused && keep[focused] !== undefined) { const el = document.getElementById(focused); if (el) el.focus(); }
+    // 開け閉めしたリストは再描画しても同じ状態に戻す
+    v.querySelectorAll("details[data-k]").forEach((el) => {
+      const k = openKey(el);
+      if (k in ui.open) el.open = ui.open[k];
+    });
   }
+
+  const openKey = (el) => (ui.dayId || "") + ":" + el.dataset.k;
+  document.addEventListener("click", (ev) => {
+    const sum = ev.target.closest("summary");
+    const el = sum && sum.parentElement;
+    if (el && el.matches("details[data-k]")) ui.open[openKey(el)] = !el.open;
+  }, true);
 
   const ICON = {
     cal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
@@ -403,7 +415,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     else {
       if (!locked) h += '<div class="btns"><button class="btn small" type="button" data-all-f="1"' + (nSel === F.length ? " disabled" : "") + '>全員選ぶ</button>' +
         '<button class="btn small" type="button" data-all-f="0"' + (!nSel ? " disabled" : "") + ">全員外す</button></div>";
-      h += '<details' + (nSel && groups.some((g) => (g.sIds || []).length) ? "" : " open") + '><summary>1年生を選ぶ（' + nSel + "/" + F.length + '人）</summary><ul class="list" style="margin-top:6px">' +
+      h += '<details data-k="pickf"' + (nSel && groups.some((g) => (g.sIds || []).length) ? "" : " open") + '><summary>1年生を選ぶ（' + nSel + "/" + F.length + '人）</summary><ul class="list" style="margin-top:6px">' +
         F.map((p) => '<li style="grid-template-columns:1fr"><label class="check"><input type="checkbox" data-pick-f="' + p.id + '"' + (p.id in fg ? " checked" : "") + (locked ? " disabled" : "") +
           '><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + '</small></div><div class="pt">' + (times[p.id] || 0) + "<small>回</small></div></label></li>").join("") + "</ul></details>";
     }
@@ -427,7 +439,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
           '<div class="fnames">' + (fr.map((p) => "<span>" + esc(p.name) + '<span class="m">' + esc(p.gender) + "</span></span>").join("") || '<span class="hint">1年生がいません</span>') + "</div></div>";
       }).join("") + "</div>";
       if (nSel && !locked) {
-        h += '<details><summary>1年生を手動で別のグループへ移す</summary><ul class="list" style="margin-top:6px">' + F.filter((p) => p.id in fg).map((p) =>
+        h += '<details data-k="movef"><summary>1年生を手動で別のグループへ移す</summary><ul class="list" style="margin-top:6px">' + F.filter((p) => p.id in fg).map((p) =>
           '<li style="grid-template-columns:1fr auto"><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + '</small></div><select class="mini" data-fgroup="' + p.id + '">' +
           groups.map((_, gi) => '<option value="' + gi + '"' + (fg[p.id] === gi ? " selected" : "") + ">グループ" + GL[gi] + "</option>").join("") + "</select></li>").join("") + "</ul></details>";
       }
@@ -438,7 +450,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     const seniors = seniorsArr().sort(L.byPriority(ui.rand));
     const absent = new Set(d.absent || []);
     h += '<section><h2><span><span class="step">5</span>自動で振り分け</span></h2><div class="panel">' +
-      '<details><summary>この日に来られない新上級生（' + absent.size + '人）</summary><ul class="list" style="margin-top:6px">' +
+      '<details data-k="absent"><summary>この日に来られない新上級生（' + absent.size + '人）</summary><ul class="list" style="margin-top:6px">' +
       (seniors.length ? seniors.map((p) => '<li style="grid-template-columns:1fr"><label class="check"><input type="checkbox" data-absent="' + p.id + '"' + (absent.has(p.id) ? " checked" : "") + (locked ? " disabled" : "") +
         '><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + '</small></div><div class="pt">' + (p.points || 0) + "<small>pt</small></div></label></li>").join("")
         : '<li class="blank">新上級生タブで登録してください。</li>') + "</ul></details>";
@@ -463,7 +475,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       });
       const bench = seniors.filter((p) => !assigned.has(p.id) && !absent.has(p.id));
       if (bench.length) {
-        h += '<details><summary>控えの新上級生（' + bench.length + '人）から入れる</summary><ul class="list" style="margin-top:6px">' +
+        h += '<details data-k="bench"><summary>控えの新上級生（' + bench.length + '人）から入れる</summary><ul class="list" style="margin-top:6px">' +
           bench.map((p) => '<li style="grid-template-columns:1fr auto"><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + (p.points || 0) + "pt・" + (p.count || 0) + "回</small></div>" + moveSelect(p.id, -1, groups.length, locked) + "</li>").join("") + "</ul></details>";
       }
       h += "</section>";
