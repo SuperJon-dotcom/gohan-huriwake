@@ -186,7 +186,7 @@
 
   // ご飯会後のポイント反映（回数は今回の分を足してから計算）
   // 減少量 = (最大回数 − 自分の回数 + 1)×15 + 30×(1 − P/(P+50))　P は自分のポイント（0未満は0として扱う）
-  // 行った人: ポイント = 100 + (自分の回数 − 最小回数 + 1)×50。最大回数の人でなければ、続けて減少量を引く
+  // 行った人: ポイント = 100 + (自分の回数 − 最小回数 + 1)×50 − (最大回数 − 自分の回数)×50。最大回数の人でなければ、続けて減少量を引く
   // 行かなかった人: ポイント −= 減少量
   function decrease(points, count, maxCount) {
     const p = Math.max(0, points);
@@ -204,7 +204,7 @@
     Object.keys(next).forEach((id) => {
       const v = next[id];
       if (went.has(id)) {
-        v.points = 100 + (v.count - minCount + 1) * 50;
+        v.points = 100 + (v.count - minCount + 1) * 50 - (maxCount - v.count) * 50;
         if (v.count < maxCount) v.points -= decrease(v.points, v.count, maxCount);
       } else {
         v.points -= decrease(v.points, v.count, maxCount);

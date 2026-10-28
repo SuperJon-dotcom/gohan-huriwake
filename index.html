@@ -176,7 +176,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="logic.js?v=4"></script>
+<script src="logic.js?v=5"></script>
 <script>
 (function () {
   const L = window.GohanLogic;
@@ -293,6 +293,8 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     .sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.createdAt || 0) - (a.createdAt || 0));
   const personLine = (p) => (p.grade ? '<span class="chip' + (Number(p.grade) === 3 ? " g3" : "") + '">' + p.grade + "年</span>" : "") +
     '<span class="chip">' + esc(p.gender) + "</span>";
+  // 部員にはポイントを整数で、編集者には小数1桁まで見せる
+  const fmtPt = (v) => { const n = Number(v) || 0; return String(canEdit ? Math.round(n * 10) / 10 : Math.round(n)); };
   const nameTag = (p, showGrade) => "<span>" + esc(p.name) + (showGrade && p.grade ? "<em>" + p.grade + "年</em>" : "") + "</span>";
 
   function freshmanTimes() {
@@ -361,7 +363,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       const sr = (g.sIds || []).map((id) => S[id] && { id, ...S[id] }).filter(Boolean);
       return '<div class="grp"><div class="grp-h"><span style="display:flex;gap:8px;align-items:center"><span class="gl">' + GL[gi] + "</span><b>グループ" + GL[gi] + '</b></span><span class="mf">' + (fr.length + sr.length) + "人</span></div>" +
         '<div class="grp-b"><div class="grp-row"><span>新上級生</span><div class="names">' + (sr.map((p) => nameTag(p, true)).join("") || '<span class="hint">未定</span>') + "</div></div>" +
-        '<div class="grp-row"><span>1年生</span><div class="names">' + (fr.map((p) => nameTag(p)).join("") || '<span class="hint">なし</span>') + "</div></div></div></div>";
+        '<div class="grp-row"><span>1年生</span><div class="names">' + (fr.map((p) => "<span>" + esc(p.name) + "<em>" + esc(p.gender || "") + "</em></span>").join("") || '<span class="hint">なし</span>') + "</div></div></div></div>";
     }).join("");
   }
 
@@ -452,7 +454,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     h += '<section><h2><span><span class="step">5</span>自動で振り分け</span></h2><div class="panel">' +
       '<details data-k="absent"><summary>この日に来られない新上級生（' + absent.size + '人）</summary><ul class="list" style="margin-top:6px">' +
       (seniors.length ? seniors.map((p) => '<li style="grid-template-columns:1fr"><label class="check"><input type="checkbox" data-absent="' + p.id + '"' + (absent.has(p.id) ? " checked" : "") + (locked ? " disabled" : "") +
-        '><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + '</small></div><div class="pt">' + (p.points || 0) + "<small>pt</small></div></label></li>").join("")
+        '><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + '</small></div><div class="pt">' + fmtPt(p.points) + "<small>pt</small></div></label></li>").join("")
         : '<li class="blank">新上級生タブで登録してください。</li>') + "</ul></details>";
     const need = groups.reduce((a, g) => a + (g.need || 0), 0);
     const avail = seniors.filter((p) => !absent.has(p.id)).length;
@@ -469,14 +471,14 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
         const chk = L.groupWarnings(fr, sr, g.need || 0);
         h += '<div class="grp"><div class="grp-h"><span style="display:flex;gap:8px;align-items:center"><span class="gl">' + GL[gi] + '</span><span class="mf">計' + (fr.length + sr.length) + "人 男" + chk.male + "・女" + chk.female + '</span></span><div class="badges">' +
           (chk.warnings.length ? chk.warnings.map((w) => '<span class="badge ng">' + w + "</span>").join("") : '<span class="badge ok">条件OK</span>') + "</div></div>" +
-          '<div class="grp-b"><div class="grp-row"><span>1年生</span><div class="names">' + (fr.map((p) => nameTag(p)).join("") || '<span class="hint">なし</span>') + "</div></div><div>" +
-          sr.map((p) => '<div class="slot"><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + (p.points || 0) + "pt・" + (p.count || 0) + '回</small></div>' + moveSelect(p.id, gi, groups.length, locked) + "</div>").join("") +
+          '<div class="grp-b"><div class="grp-row"><span>1年生</span><div class="names">' + (fr.map((p) => "<span>" + esc(p.name) + "<em>" + esc(p.gender || "") + "</em></span>").join("") || '<span class="hint">なし</span>') + "</div></div><div>" +
+          sr.map((p) => '<div class="slot"><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + fmtPt(p.points) + "pt・" + (p.count || 0) + '回</small></div>' + moveSelect(p.id, gi, groups.length, locked) + "</div>").join("") +
           "</div></div></div>";
       });
       const bench = seniors.filter((p) => !assigned.has(p.id) && !absent.has(p.id));
       if (bench.length) {
         h += '<details data-k="bench"><summary>控えの新上級生（' + bench.length + '人）から入れる</summary><ul class="list" style="margin-top:6px">' +
-          bench.map((p) => '<li style="grid-template-columns:1fr auto"><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + (p.points || 0) + "pt・" + (p.count || 0) + "回</small></div>" + moveSelect(p.id, -1, groups.length, locked) + "</li>").join("") + "</ul></details>";
+          bench.map((p) => '<li style="grid-template-columns:1fr auto"><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + fmtPt(p.points) + "pt・" + (p.count || 0) + "回</small></div>" + moveSelect(p.id, -1, groups.length, locked) + "</li>").join("") + "</ul></details>";
       }
       h += "</section>";
     }
@@ -487,7 +489,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     h += '<section><h2>この日の操作</h2><div class="panel">';
     if (d.status === "draft") h += '<button class="btn yolk" type="button" data-status="published">この振り分けを部員に公開する</button><p class="hint">公開すると、ログインしていない部員にもこの日の担当が見えます。</p>';
     if (d.status === "published") h += '<button class="btn good" type="button" data-finish>ご飯会が終わった（ポイントを反映）</button><button class="btn" type="button" data-status="draft">公開をやめて準備中に戻す</button>' +
-      '<p class="hint">反映すると、行った新上級生は回数+1・ポイントが「100＋(自分の回数−最小回数+1)×50」になります（最大回数の人以外はそこから下の減少も）。行っていない人は「(最大回数−自分の回数+1)×15＋30×(1−P/(P+50))」減ります（P＝自分のポイント）。</p>';
+      '<p class="hint">反映すると、行った新上級生は回数+1・ポイントが「100＋(自分の回数−最小回数+1)×50−(最大回数−自分の回数)×50」になります（最大回数の人以外はそこから下の減少も）。行っていない人は「(最大回数−自分の回数+1)×15＋30×(1−P/(P+50))」減ります（P＝自分のポイント）。</p>';
     if (d.status === "done") h += '<button class="btn danger" type="button" data-undo>ポイント反映を取り消す</button><p class="hint">この日より後に反映した日程がある場合は、そちらから先に取り消してください。</p>';
     h += '<div class="row"><label class="f">日付<input type="date" id="e-date" value="' + esc(d.date) + '"' + (locked ? " disabled" : "") + '></label><label class="f">メモ<input type="text" id="e-note" maxlength="40" value="' + esc(d.note || "") + '"></label></div>' +
       '<button class="btn danger" type="button" data-del-day>この日程を削除</button></div></section>';
@@ -538,7 +540,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     }
     h += '<section><h2>' + (canEdit ? "新上級生一覧" : "ごはんポイント") + " <small>ポイントが少ない人ほど次の担当に近い</small></h2><ul class=\"list\">" +
       (list.length ? list.map((p, i) => '<li class="' + (canEdit ? "tap" : "") + '"' + (canEdit ? ' data-edit-s="' + p.id + '" tabindex="0" role="button"' : "") + '><span class="mark">' + (i + 1) +
-        '</span><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + "行った回数 " + (p.count || 0) + '</small></div><div class="pt">' + (p.points || 0) + "<small>pt</small></div></li>").join("")
+        '</span><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + "行った回数 " + (p.count || 0) + '</small></div><div class="pt">' + fmtPt(p.points) + "<small>pt</small></div></li>").join("")
         : '<li class="blank">' + (canEdit ? "上のフォームから2・3年生を追加してください。" : "まだ登録がありません。") + "</li>") + "</ul></section>";
     return h;
   }
