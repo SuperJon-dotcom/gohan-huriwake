@@ -69,6 +69,15 @@ h2 .step { font-family: var(--f-num); color: var(--yolk-ink); background: var(--
 .pt small { display: block; font-family: var(--f-body); font-size: 11px; color: var(--muted); margin-top: 3px; }
 .chip { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 6px; background: var(--bg); color: var(--muted); margin-right: 4px; white-space: nowrap; }
 .chip.g3 { background: var(--yolk-soft); color: var(--yolk-ink); }
+.chip.dev { margin-left: 6px; margin-right: 0; font-family: ui-monospace, monospace; }
+.chip.ng { background: var(--warn-soft); color: var(--warn); }
+.fixed-name { display: flex; align-items: baseline; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.fixed-name small { color: var(--muted); font-size: 12px; }
+.mebar { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; padding: 8px 16px; font-size: 13px; font-weight: 700; background: var(--surface); border-bottom: 1px solid var(--line); }
+.mebar[hidden] { display: none; }
+.note-warn { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--warn-soft); color: var(--warn); font-size: 13px; font-weight: 700; line-height: 1.6; }
+.sub-h { font-size: 16px !important; margin-top: 6px !important; }
+.ng-t { color: var(--warn); }
 .status { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
 .st-draft { background: var(--line); color: var(--muted); }
 .st-published { background: var(--yolk); color: #1d1400; }
@@ -172,6 +181,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
   </div>
 </div></header>
 <div class="banner" id="banner" hidden>テストモード：データはこの端末にだけ保存されます</div>
+<div class="mebar" id="mebar" hidden></div>
 
 <main><div class="wrap" id="view"></div></main>
 
@@ -196,25 +206,54 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
   const STATUS = { draft: "準備中", published: "公開中", done: "終了・反映済み" };
 
   // ================= データ保存 =================
-  const empty = () => ({ seniors: {}, freshmen: {}, days: {} });
+  // freshmen = 1年、seniors = 2・3年（振り分けとポイントの対象）、elders = 4年（ログインとコメントだけ）
+  const empty = () => ({ seniors: {}, freshmen: {}, elders: {}, days: {} });
   let state = empty();
   let canEdit = false;
   let ready = false;
   let noKey = false;
-  const Store = { mode: window.FIREBASE_CONFIG ? "firebase" : "local", ref: null };
+  // 自分のPC（localhost）で開いたときは本番のデータに触れないテストモードにする
+  const onDevHost = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+  const Store = { mode: window.FIREBASE_CONFIG && !onDevHost ? "firebase" : "local", ref: null };
 
   function normalize(d) {
     const s = Object.assign(empty(), d || {});
-    s.seniors = s.seniors || {}; s.freshmen = s.freshmen || {}; s.days = s.days || {};
+    s.seniors = s.seniors || {}; s.freshmen = s.freshmen || {}; s.elders = s.elders || {}; s.days = s.days || {};
     return s;
+  }
+
+  // テストモードの保存先。領収書の画像が入ると localStorage では足りないので IndexedDB を使う
+  const LocalDB = {
+    open() {
+      return this.p || (this.p = new Promise((ok, ng) => {
+        const r = indexedDB.open("gohan", 1);
+        r.onupgradeneeded = () => r.result.createObjectStore("kv");
+        r.onsuccess = () => ok(r.result); r.onerror = () => ng(r.error);
+      }));
+    },
+    async get(k) {
+      const db = await this.open();
+      return new Promise((ok, ng) => { const q = db.transaction("kv").objectStore("kv").get(k); q.onsuccess = () => ok(q.result); q.onerror = () => ng(q.error); });
+    },
+    async set(k, v) {
+      const db = await this.open();
+      return new Promise((ok, ng) => { const t = db.transaction("kv", "readwrite"); t.objectStore("kv").put(v, k); t.oncomplete = () => ok(); t.onerror = () => ng(t.error); });
+    },
+  };
+  async function loadLocal() {
+    try { const s = await LocalDB.get("state"); if (s) return s; } catch (e) { console.error(e); }
+    try { return JSON.parse(localStorage.getItem("gohan-state") || "null"); } catch (e) { return null; }
   }
 
   function startStore() {
     if (Store.mode === "local") {
-      try { state = normalize(JSON.parse(localStorage.getItem("gohan-state") || "null")); } catch (e) { state = empty(); }
-      canEdit = true; ready = true;
+      // ?viewer を付けると部員から見た画面を確認できる
+      canEdit = !/[?&]viewer\b/.test(location.search);
       $("#banner").hidden = false;
-      render();
+      // PCで共有リンクの鍵（#以降）付きで開いたときは、本番のデータを読み込むボタンを出す
+      if (onDevHost && canEdit && window.FIREBASE_CONFIG && location.hash.length > 1)
+        $("#banner").insertAdjacentHTML("beforeend", ' <button class="btn small" type="button" data-import-live>本番のデータを取り込む</button>');
+      loadLocal().then((s) => { state = normalize(s); ready = true; render(); });
       return;
     }
     // データの場所は共有リンクの # 以降（鍵）で決まる。鍵はプログラムに書かない
@@ -233,7 +272,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     Store.ref.collection("comments").onSnapshot((snap) => {
       remoteComments = snap.docs.map((doc) => {
         const x = doc.data({ serverTimestamps: "estimate" });
-        return { id: doc.id, dayId: x.dayId, name: x.name, text: x.text, at: x.at && x.at.toMillis ? x.at.toMillis() : Date.now() };
+        return { id: doc.id, dayId: x.dayId, name: x.name, text: x.text, uid: x.uid || null, pid: x.pid || null, deletedAt: x.deletedAt || null, at: x.at && x.at.toMillis ? x.at.toMillis() : Date.now() };
       });
       if (!first && canEdit) {
         const added = snap.docChanges().filter((c) => c.type === "added" && !c.doc.metadata.hasPendingWrites);
@@ -242,26 +281,156 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       first = false;
       render();
     }, (e) => console.error(e));
-    firebase.auth().onAuthStateChanged((u) => { canEdit = !!u; render(); });
+    const toMap = (snap) => { const m = {}; snap.forEach((d) => { m[d.id] = d.data(); }); return m; };
+    // 名前の使用状況が両方とも届いてから「あなたはだれですか」を出す
+    const loaded = new Set();
+    const idSnap = (k, set) => (snap) => { set(toMap(snap)); loaded.add(k); idReady = loaded.size === 2; render(); };
+    Store.ref.collection("owners").onSnapshot(idSnap("o", (m) => { remoteOwners = m; }), (e) => console.error(e));
+    Store.ref.collection("names").onSnapshot(idSnap("n", (m) => { remoteNames = m; }), (e) => console.error(e));
+    // 部員は匿名ログインで端末ごとの ID を持つ。編集者はメールでログイン
+    firebase.auth().onAuthStateChanged((u) => {
+      canEdit = !!u && !u.isAnonymous;
+      if (!u) firebase.auth().signInAnonymously().catch((e) => console.error(e));
+      render();
+    });
     $("#b-login").hidden = false;
   }
 
   // コメントは本体とは別に保存する（部員も書き込むため）。テストモードでは state.comments に入れる
   let remoteComments = [];
-  function dayComments(dayId) {
+  // trashed = true でゴミ箱の中身を返す
+  function dayComments(dayId, trashed) {
     const all = Store.mode === "local" ? Object.entries(state.comments || {}).map(([id, c]) => ({ id, ...c })) : remoteComments;
-    return all.filter((c) => c.dayId === dayId).sort((a, b) => b.at - a.at);
+    return all.filter((c) => c.dayId === dayId && !!c.deletedAt === !!trashed).sort((a, b) => b.at - a.at);
   }
-  async function postComment(dayId, name, text) {
-    if (Store.mode === "local") return save((s) => { s.comments = s.comments || {}; s.comments[uid()] = { dayId, name, text, at: Date.now() }; });
+
+  // ================= 端末の識別（荒らし対策） =================
+  // 本番は匿名ログインの uid が端末の ID。テストモードは端末内の乱数で、?device=名前 を付けると別の端末のふりができる
+  function myUid() {
+    if (Store.mode !== "local") { const u = firebase.auth().currentUser; return u ? u.uid : null; }
+    const m = location.search.match(/[?&]device=([^&]+)/);
+    if (m) return "dev-" + decodeURIComponent(m[1]);
     try {
-      await Store.ref.collection("comments").add({ dayId, name, text, at: firebase.firestore.FieldValue.serverTimestamp() });
-      return true;
-    } catch (e) { console.error(e); return false; }
+      let id = localStorage.getItem("gohan-dev-device");
+      if (!id) { id = "dev-" + uid(); localStorage.setItem("gohan-dev-device", id); }
+      return id;
+    } catch (e) { return "dev-tmp"; }
   }
-  function deleteComment(id) {
-    if (Store.mode === "local") return save((s) => { delete s.comments[id]; }, "コメントを削除しました");
-    return Store.ref.collection("comments").doc(id).delete().then(() => toast("コメントを削除しました"), () => toast("削除できませんでした"));
+  // 編集者に見せる端末の短い記号（uid から作る4文字）
+  const devCode = (u) => {
+    let h = 2166136261;
+    for (const ch of String(u)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+    h ^= h >>> 13; h = Math.imul(h, 0x5bd1e995); h ^= h >>> 15;
+    return (h >>> 0).toString(36).toUpperCase().slice(-4).padStart(4, "0");
+  };
+  // owners: 端末(uid) → {pid, name}、names: 部員(pid) → {uid}。最初に名前を選んだときに両方を作り、以後は変えられない（解除は編集者だけ）
+  let remoteOwners = {}, remoteNames = {}, idReady = Store.mode === "local";
+  const ownersMap = () => (Store.mode === "local" ? state.owners || {} : remoteOwners);
+  const namesMap = () => (Store.mode === "local" ? state.names || {} : remoteNames);
+  const blockedMap = () => state.blocked || {};
+
+  // この端末でログインしている部員（なければ null）
+  function myPerson() {
+    const me = myUid();
+    const o = me && ownersMap()[me];
+    if (!o || !o.pid) return null;
+    const n = namesMap()[o.pid];
+    if (!n || n.uid !== me) return null;
+    return people()[o.pid] || null;
+  }
+  const guestKey = () => "gohan-guest:" + myUid();
+  function isGuest() { try { return localStorage.getItem(guestKey()) === "1"; } catch (e) { return false; } }
+  function setGuest(on) { try { on ? localStorage.setItem(guestKey(), "1") : localStorage.removeItem(guestKey()); } catch (e) {} }
+
+  // 名前を決める。戻り値: ok / noauth / taken / error
+  async function claimName(pid) {
+    const me = myUid();
+    const p = people()[pid];
+    if (!me) return "noauth";
+    if (!p) return "error";
+    const holder = namesMap()[pid];
+    if (holder && holder.uid !== me) return "taken";
+    if (Store.mode === "local") {
+      const ok = await save((s) => {
+        s.owners = s.owners || {}; s.names = s.names || {};
+        s.owners[me] = { pid, name: p.name, at: Date.now() };
+        s.names[pid] = { uid: me, at: Date.now() };
+      });
+      return ok ? "ok" : "error";
+    }
+    try {
+      const ts = firebase.firestore.FieldValue.serverTimestamp();
+      const b = firebase.firestore().batch();
+      b.set(Store.ref.collection("owners").doc(me), { pid, name: p.name, at: ts });
+      b.set(Store.ref.collection("names").doc(pid), { uid: me, at: ts });
+      await b.commit();
+      return "ok";
+    } catch (e) { console.error(e); return namesMap()[pid] ? "taken" : "error"; }
+  }
+
+  // 投稿できるか。編集者は代理で誰の名前でも書ける。戻り値: null（書ける） / noauth / nologin / blocked
+  function postCheck(pid) {
+    const me = myUid();
+    if (!me) return "noauth";
+    if (canEdit) return pid && people()[pid] ? null : "nologin";
+    if (blockedMap()[me]) return "blocked";
+    return myPerson() ? null : "nologin";
+  }
+  const POST_MSG = {
+    noauth: "準備中です。少し待ってからもう一度押してください",
+    nologin: "名前を決めるとコメントや領収書を送れます",
+    blocked: "この端末からは送れません",
+    error: "送れませんでした。公開中の日程か確認してください",
+  };
+
+  // 戻り値: ok / noauth / nologin / blocked / error
+  async function postComment(dayId, pid, text) {
+    if (!canEdit) pid = myPerson() && myPerson().id;
+    const bad = postCheck(pid);
+    if (bad) return bad;
+    const me = myUid(), name = people()[pid].name;
+    if (Store.mode === "local") {
+      const ok = await save((s) => { s.comments = s.comments || {}; s.comments[uid()] = { dayId, name, text, uid: me, pid, at: Date.now() }; });
+      return ok ? "ok" : "error";
+    }
+    try {
+      await Store.ref.collection("comments").add({ dayId, name, text, uid: me, pid, at: firebase.firestore.FieldValue.serverTimestamp() });
+      return "ok";
+    } catch (e) { console.error(e); return "error"; }
+  }
+  // ログインを解除する（本人が別の端末に替えたときなど）。u は端末の uid
+  async function releaseOwner(u) {
+    const own = ownersMap()[u];
+    const pid = own && own.pid;
+    const ownsName = pid && namesMap()[pid] && namesMap()[pid].uid === u;
+    if (Store.mode === "local") return save((s) => { if (s.owners) delete s.owners[u]; if (ownsName) delete s.names[pid]; }, "ログインを解除しました");
+    const b = firebase.firestore().batch();
+    b.delete(Store.ref.collection("owners").doc(u));
+    if (ownsName) b.delete(Store.ref.collection("names").doc(pid));
+    return b.commit().then(() => toast("ログインを解除しました"), (e) => { console.error(e); toast("解除できませんでした"); });
+  }
+  function setBlocked(u, on) {
+    const own = ownersMap()[u];
+    const p = own && people()[own.pid];
+    return save((s) => {
+      s.blocked = s.blocked || {};
+      if (on) s.blocked[u] = { name: p ? p.name : (own && own.name) || "", at: Date.now() };
+      else delete s.blocked[u];
+    }, on ? "この端末からの投稿を止めました" : "ブロックを解除しました");
+  }
+  // 削除はまずゴミ箱へ（deletedAt を付けるだけ）。完全に消すのはゴミ箱から。kind は "comments" か "receipts"
+  const TRASH_MSG = { trash: "削除しました（ゴミ箱から戻せます）", restore: "元に戻しました", purge: "完全に削除しました" };
+  function trashOp(kind, id, op) {
+    if (Store.mode === "local") return save((s) => {
+      const x = s[kind] && s[kind][id];
+      if (!x) return;
+      if (op === "purge") delete s[kind][id];
+      else if (op === "trash") x.deletedAt = Date.now();
+      else delete x.deletedAt;
+    }, TRASH_MSG[op]);
+    const ref = Store.ref.collection(kind).doc(id);
+    const p = op === "purge" ? ref.delete() : ref.update({ deletedAt: op === "trash" ? Date.now() : firebase.firestore.FieldValue.delete() });
+    return p.then(() => toast(TRASH_MSG[op]), (e) => { console.error(e); toast("できませんでした。ログイン状態を確認してください"); });
   }
 
   // 領収書は画像が大きいので、開いている日程の分だけ読み込む。テストモードでは state.receipts に入れる
@@ -275,25 +444,94 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     rcWatch.off = Store.ref.collection("receipts").where("dayId", "==", dayId).onSnapshot((snap) => {
       remoteReceipts = snap.docs.map((doc) => {
         const x = doc.data({ serverTimestamps: "estimate" });
-        return { id: doc.id, dayId: x.dayId, name: x.name, note: x.note || "", image: x.image, at: x.at && x.at.toMillis ? x.at.toMillis() : Date.now() };
+        return { id: doc.id, dayId: x.dayId, name: x.name, pid: x.pid || null, uid: x.uid || null, note: x.note || "", image: x.image, deletedAt: x.deletedAt || null, at: x.at && x.at.toMillis ? x.at.toMillis() : Date.now() };
       });
       render();
     }, (e) => console.error(e));
   }
-  function dayReceipts(dayId) {
+  function dayReceipts(dayId, trashed) {
     const all = Store.mode === "local" ? Object.entries(state.receipts || {}).map(([id, r]) => ({ id, ...r })) : remoteReceipts;
-    return all.filter((r) => r.dayId === dayId).sort((a, b) => b.at - a.at);
+    return all.filter((r) => r.dayId === dayId && !!r.deletedAt === !!trashed).sort((a, b) => b.at - a.at);
   }
-  async function postReceipt(dayId, name, note, image) {
-    if (Store.mode === "local") return save((s) => { s.receipts = s.receipts || {}; s.receipts[uid()] = { dayId, name, note, image, at: Date.now() }; });
+  // 戻り値: ok / noauth / nologin / blocked / error
+  async function postReceipt(dayId, pid, note, image) {
+    if (!canEdit) pid = myPerson() && myPerson().id;
+    const bad = postCheck(pid);
+    if (bad) return bad;
+    const me = myUid(), name = people()[pid].name;
+    if (Store.mode === "local") {
+      const ok = await save((s) => { s.receipts = s.receipts || {}; s.receipts[uid()] = { dayId, name, pid, uid: me, note, image, at: Date.now() }; });
+      return ok ? "ok" : "error";
+    }
     try {
-      await Store.ref.collection("receipts").add({ dayId, name, note, image, at: firebase.firestore.FieldValue.serverTimestamp() });
-      return true;
-    } catch (e) { console.error(e); return false; }
+      await Store.ref.collection("receipts").add({ dayId, name, pid, uid: me, note, image, at: firebase.firestore.FieldValue.serverTimestamp() });
+      return "ok";
+    } catch (e) { console.error(e); return "error"; }
   }
-  function deleteReceipt(id) {
-    if (Store.mode === "local") return save((s) => { delete s.receipts[id]; }, "領収書を削除しました");
-    return Store.ref.collection("receipts").doc(id).delete().then(() => toast("領収書を削除しました"), () => toast("削除できませんでした"));
+
+  // ================= バックアップ =================
+  // 日程・メンバー・コメント・領収書（画像込み）を1つの JSON にまとめる
+  async function collectRemote(ref) {
+    // owners / names はルールが古いと読めないので、読めなければ空として扱う
+    const opt = (q) => q.get().catch(() => ({ forEach() {} }));
+    const [main, cs, rs, os, ns] = await Promise.all([ref.get(), ref.collection("comments").get(), ref.collection("receipts").get(),
+      opt(ref.collection("owners")), opt(ref.collection("names"))]);
+    const plain = (doc) => { const x = doc.data(); if (x.at && x.at.toMillis) x.at = x.at.toMillis(); return x; };
+    const out = { app: "gohan-huriwake", version: 1, savedAt: Date.now(), main: main.exists ? main.data() : empty(), comments: {}, receipts: {}, owners: {}, names: {} };
+    cs.forEach((d) => { out.comments[d.id] = plain(d); });
+    rs.forEach((d) => { out.receipts[d.id] = plain(d); });
+    os.forEach((d) => { out.owners[d.id] = plain(d); });
+    ns.forEach((d) => { out.names[d.id] = plain(d); });
+    return out;
+  }
+  async function collectBackup() {
+    if (Store.mode !== "local") return collectRemote(Store.ref);
+    const { comments, receipts, owners, names, ...main } = clone(state);
+    return { app: "gohan-huriwake", version: 1, savedAt: Date.now(), main, comments: comments || {}, receipts: receipts || {}, owners: owners || {}, names: names || {} };
+  }
+  function stamp(t) {
+    const d = new Date(t), p = (n) => String(n).padStart(2, "0");
+    return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + "-" + p(d.getHours()) + p(d.getMinutes());
+  }
+  async function downloadBackup() {
+    const data = await collectBackup();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: "application/json" }));
+    a.download = "gohan-backup-" + stamp(data.savedAt) + ".json";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    return data;
+  }
+  // 復元: 日程・メンバーはファイルの時点に戻す。コメント・領収書はファイルにあるものを書き戻す（後から増えた分は残す）
+  async function restoreBackup(b) {
+    if (Store.mode === "local") {
+      return save((s) => {
+        Object.assign(s, normalize(b.main));
+        s.comments = Object.assign(s.comments || {}, b.comments || {});
+        s.receipts = Object.assign(s.receipts || {}, b.receipts || {});
+        s.owners = Object.assign(s.owners || {}, b.owners || {});
+        s.names = Object.assign(s.names || {}, b.names || {});
+      });
+    }
+    const ts = (x) => Object.assign({}, x, { at: firebase.firestore.Timestamp.fromMillis(Number(x.at) || Date.now()) });
+    await Store.ref.set(b.main);
+    await Promise.all(Object.entries(b.comments || {}).map(([id, c]) => Store.ref.collection("comments").doc(id).set(ts(c))));
+    await Promise.all(Object.entries(b.owners || {}).map(([id, o]) => Store.ref.collection("owners").doc(id).set(ts(o))));
+    await Promise.all(Object.entries(b.names || {}).map(([id, n]) => Store.ref.collection("names").doc(id).set(ts(n))));
+    for (const [id, r] of Object.entries(b.receipts || {})) await Store.ref.collection("receipts").doc(id).set(ts(r));
+    return true;
+  }
+  const isBackup = (b) => b && b.app === "gohan-huriwake" && b.main && typeof b.main === "object";
+  // PCのテストモードに、本番のデータをまるごと写す（本番は読むだけ）
+  async function importLive() {
+    const key = decodeURIComponent(location.hash.slice(1));
+    const app = firebase.apps.find((a) => a.name === "live") || firebase.initializeApp(window.FIREBASE_CONFIG, "live");
+    const b = await collectRemote(app.firestore().doc("spaces/" + key));
+    rcUrls.clear();
+    return save((s) => {
+      Object.keys(s).forEach((k) => delete s[k]);
+      Object.assign(s, normalize(b.main), { comments: b.comments, receipts: b.receipts, owners: b.owners, names: b.names });
+    }, "本番のデータを取り込みました");
   }
   // 描画のたびに大きな data URL を流し込まないよう、画像は一度だけ blob URL にしておく
   const rcUrls = new Map();
@@ -336,7 +574,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     const prev = state;
     state = next; render();
     try {
-      if (Store.mode === "local") localStorage.setItem("gohan-state", JSON.stringify(next));
+      if (Store.mode === "local") await LocalDB.set("state", next);
       else await Store.ref.set(next);
       if (okMsg) toast(okMsg);
       return true;
@@ -359,6 +597,17 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     render(); window.scrollTo(0, 0);
   }
 
+  // 1〜4年の全部員。id → {id, name, gender, grade, cat}
+  function people() {
+    const out = {};
+    Object.entries(state.freshmen).forEach(([id, v]) => { out[id] = { ...v, id, grade: 1, cat: "freshmen" }; });
+    Object.entries(state.seniors).forEach(([id, v]) => { out[id] = { ...v, id, grade: Number(v.grade) || 2, cat: "seniors" }; });
+    Object.entries(state.elders || {}).forEach(([id, v]) => { out[id] = { ...v, id, grade: 4, cat: "elders" }; });
+    return out;
+  }
+  const byGradeName = (a, b) => a.grade - b.grade || a.name.localeCompare(b.name, "ja");
+  // 表示する名前は部員リストの今の名前を優先（名前を変えても追従する）
+  const authorName = (x, pp) => (x.pid && (pp || people())[x.pid] ? (pp || people())[x.pid].name : x.name);
   const seniorsArr = () => Object.entries(state.seniors).map(([id, v]) => ({ id, ...v }));
   const freshmenArr = () => Object.entries(state.freshmen).map(([id, v]) => ({ id, ...v }));
   const daysArr = () => Object.entries(state.days).map(([id, v]) => ({ id, ...v }))
@@ -378,13 +627,19 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
   // ================= 描画 =================
   function render() {
     const role = $("#role");
-    role.textContent = !ready ? "読み込み中" : canEdit ? "編集できます" : "閲覧のみ";
+    const meP = !canEdit && ready && !noKey && idReady ? myPerson() : null;
+    role.textContent = !ready ? "読み込み中" : canEdit ? "編集できます" : meP ? meP.name + " さん" : "未ログイン";
     role.classList.toggle("edit", canEdit);
+    const bar = $("#mebar");
+    const showBar = !canEdit && ready && !noKey && idReady && myUid();
+    bar.hidden = !showBar || (meP && !blockedMap()[myUid()]);
+    if (showBar && !meP) bar.innerHTML = '<span>未ログイン：名前を決めるとコメントや領収書を使えます</span><button class="btn small" type="button" data-choose>名前を決める</button>';
+    else if (showBar && meP) bar.innerHTML = "<span>この端末からはコメントや領収書を送れません</span>";
     const lb = $("#b-login");
     if (Store.mode === "firebase") lb.textContent = canEdit ? "ログアウト" : "編集ログイン";
 
     const tabs = canEdit
-      ? [["days", "日程", ICON.cal], ["seniors", "新上級生", ICON.ppl], ["freshmen", "1年生", ICON.sprout]]
+      ? [["days", "日程", ICON.cal], ["members", "部員", ICON.ppl], ["seniors", "新上級生", ICON.ppl], ["freshmen", "1年生", ICON.sprout]]
       : [["days", "日程", ICON.cal], ["seniors", "ポイント", ICON.ppl]];
     if (!tabs.some((t) => t[0] === ui.tab)) ui.tab = "days";
     $("#tabs").innerHTML = tabs.map(([k, label, ic]) => '<button role="tab" data-tab="' + k + '" aria-selected="' + (ui.tab === k) + '">' + ic + label + "</button>").join("");
@@ -405,6 +660,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     else if (ui.tab === "days" && ui.dayId && state.days[ui.dayId]) v.innerHTML = canEdit ? dayEditor(ui.dayId) : dayDetailView(ui.dayId);
     else if (ui.tab === "days") { ui.dayId = null; v.innerHTML = daysList(); }
     else if (ui.tab === "seniors") v.innerHTML = seniorsView();
+    else if (ui.tab === "members") v.innerHTML = membersView();
     else v.innerHTML = freshmenView();
     Object.entries(keep).forEach(([k, val]) => { const el = document.getElementById(k); if (el) el.value = val; });
     if (focused && keep[focused] !== undefined) { const el = document.getElementById(focused); if (el) el.focus(); }
@@ -413,6 +669,8 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       const k = openKey(el);
       if (k in ui.open) el.open = ui.open[k];
     });
+    // 初めて開いた端末には「あなたはだれですか」を出す
+    if (showBar && !meP && !isGuest() && !ui.chooserOpen) openChooser();
   }
 
   const openKey = (el) => (ui.dayId || "") + ":" + el.dataset.k;
@@ -430,11 +688,12 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
 
   // ---------- 日程一覧 ----------
   function groupSummary(d) {
-    const F = state.freshmen, S = state.seniors;
+    // 学年が変わった人も過去の日程に表示されるよう、全部員から引く
+    const pp = people();
     const groups = d.groups || [];
     return groups.map((g, gi) => {
-      const fr = Object.entries(d.fGroup || {}).filter(([, x]) => x === gi).map(([id]) => F[id] && { id, ...F[id] }).filter(Boolean);
-      const sr = (g.sIds || []).map((id) => S[id] && { id, ...S[id] }).filter(Boolean);
+      const fr = Object.entries(d.fGroup || {}).filter(([, x]) => x === gi).map(([id]) => pp[id]).filter(Boolean);
+      const sr = (g.sIds || []).map((id) => pp[id]).filter(Boolean);
       return '<div class="grp"><div class="grp-h"><span style="display:flex;gap:8px;align-items:center"><span class="gl">' + GL[gi] + "</span><b>グループ" + GL[gi] + '</b></span><span class="mf">' + (fr.length + sr.length) + "人</span></div>" +
         '<div class="grp-b"><div class="grp-row"><span>新上級生</span><div class="names">' + (sr.map((p) => nameTag(p, true)).join("") || '<span class="hint">未定</span>') + "</div></div>" +
         '<div class="grp-row"><span>1年生</span><div class="names">' + (fr.map((p) => "<span>" + esc(p.name) + "<em>" + esc(p.gender || "") + "</em></span>").join("") || '<span class="hint">なし</span>') + "</div></div></div></div>";
@@ -460,7 +719,16 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
         (nC || d.status === "published" ? '<div style="display:flex;gap:8px;align-items:center"><span class="cnt">コメント ' + nC + "件</span>" +
           (d.status === "published" ? '<span class="hint">タップして詳細・コメントを開く</span>' : "") + "</div>" : "") + "</div>";
     });
-    return h + "</section>";
+    h += "</section>";
+    if (canEdit) {
+      h += '<section><h2>バックアップ</h2><div class="panel">' +
+        '<p class="hint">日程・メンバー・コメント・領収書（画像込み）を1つのファイルにまとめて、この端末に保存します。ご飯会のあとなどに保存しておくと安心です。</p>' +
+        '<button class="btn" type="button" data-backup>バックアップを保存</button>' +
+        '<label class="btn" style="text-align:center">バックアップから復元<input type="file" id="restore-file" accept=".json,application/json" hidden></label>' +
+        '<p class="hint">復元すると、日程とメンバーはファイルを保存した時点に戻り、消してしまったコメント・領収書も戻ります。後から増えたコメント・領収書は消えません。復元の直前に、今の状態も自動でバックアップします。</p>' +
+        "</div></section>";
+    }
+    return h;
   }
 
   function dayDetailView(id) {
@@ -527,7 +795,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     const absent = new Set(d.absent || []);
     h += '<section><h2><span><span class="step">5</span>自動で振り分け</span></h2><div class="panel">' +
       '<details data-k="absent"><summary>この日に来られない新上級生（' + absent.size + '人）</summary><ul class="list" style="margin-top:6px">' +
-      (seniors.length ? seniors.map((p) => '<li style="grid-template-columns:1fr"><label class="check"><input type="checkbox" data-absent="' + p.id + '"' + (absent.has(p.id) ? " checked" : "") + (locked ? " disabled" : "") +
+      (seniors.length ? seniors.slice().sort((a, b) => a.name.localeCompare(b.name, "ja")).map((p) => '<li style="grid-template-columns:1fr"><label class="check"><input type="checkbox" data-absent="' + p.id + '"' + (absent.has(p.id) ? " checked" : "") + (locked ? " disabled" : "") +
         '><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + '</small></div><div class="pt">' + fmtPt(p.points) + "<small>pt</small></div></label></li>").join("")
         : '<li class="blank">新上級生タブで登録してください。</li>') + "</ul></details>";
     const need = groups.reduce((a, g) => a + (g.need || 0), 0);
@@ -540,8 +808,10 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       const assigned = new Set(groups.flatMap((g) => g.sIds || []));
       h += '<section><h2><span><span class="step">6</span>結果の確認</span><small>選び直しはプルダウンで</small></h2>';
       groups.forEach((g, gi) => {
-        const fr = F.filter((p) => fg[p.id] === gi);
-        const sr = (g.sIds || []).map((sid) => S[sid] && { id: sid, ...S[sid] }).filter(Boolean);
+        // 終わった日程は、その後に学年が変わった人も表示する
+        const PP = people();
+        const fr = locked ? Object.keys(fg).filter((id) => fg[id] === gi).map((id) => PP[id]).filter(Boolean) : F.filter((p) => fg[p.id] === gi);
+        const sr = (g.sIds || []).map((sid) => (S[sid] ? { id: sid, ...S[sid] } : PP[sid])).filter(Boolean);
         const chk = L.groupWarnings(fr, sr, g.need || 0);
         h += '<div class="grp"><div class="grp-h"><span style="display:flex;gap:8px;align-items:center"><span class="gl">' + GL[gi] + '</span><span class="mf">計' + (fr.length + sr.length) + "人 男" + chk.male + "・女" + chk.female + '</span></span><div class="badges">' +
           (chk.warnings.length ? chk.warnings.map((w) => '<span class="badge ng">' + w + "</span>").join("") : '<span class="badge ok">条件OK</span>') + "</div></div>" +
@@ -570,65 +840,277 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     return h;
   }
 
-  // 部員が自分の名前を選ぶプルダウン（コメント・領収書で共通）
-  function nameSelect(id) {
-    const byName = (a, b) => a.name.localeCompare(b.name, "ja");
-    const opt = (p) => '<option value="' + esc(p.name) + '">' + esc(p.name) + "</option>";
-    return '<select id="' + id + '"><option value="">選んでください</option>' +
-      '<optgroup label="新上級生">' + seniorsArr().sort(byName).map(opt).join("") + "</optgroup>" +
-      '<optgroup label="1年生">' + freshmenArr().sort(byName).map(opt).join("") + "</optgroup></select>";
+  // 部員を学年ごとに並べたプルダウン（値は部員の id）。disabledIds に入っている人は選べない
+  function nameSelect(id, disabledIds, note) {
+    const pp = people();
+    const opts = [1, 2, 3, 4].map((g) => {
+      const ps = Object.values(pp).filter((p) => p.grade === g).sort(byGradeName);
+      return ps.length ? '<optgroup label="' + g + '年">' + ps.map((p) => {
+        const off = disabledIds && disabledIds[p.id];
+        return '<option value="' + esc(p.id) + '"' + (off ? " disabled" : "") + ">" + esc(p.name) + (off ? note || "" : "") + "</option>";
+      }).join("") + "</optgroup>" : "";
+    }).join("");
+    return '<select id="' + id + '"><option value="">選んでください</option>' + opts + "</select>";
   }
+  // 投稿欄の名前。部員はログイン中の名前を表示、編集者は代理で誰の名前でも選べる
+  function meField(id) {
+    if (canEdit) return '<label class="f">名前（代理で送る）' + nameSelect(id) + "</label>";
+    const p = myPerson();
+    return '<div class="f">名前<div class="fixed-name"><b>' + esc(p.name) + "</b><small>" + p.grade + "年・この端末でログイン中</small></div></div>";
+  }
+  // 部員がまだ書けないときに投稿欄の代わりに出す案内。書けるなら ""
+  function postGate(what) {
+    if (canEdit) return "";
+    const r = postCheck();
+    if (!r) return "";
+    if (r === "blocked") return '<p class="hint">この端末からは' + what + "を送れません。</p>";
+    if (r === "noauth") return '<p class="hint">読み込み中…</p>';
+    return '<div class="panel"><p class="hint">' + what + 'を見たり送ったりするには、名前を決めてください。</p><button class="btn primary" type="button" data-choose>名前を決める</button></div>';
+  }
+  const canSeePosts = () => canEdit || !!myPerson();
 
   // ---------- 領収書（公開中〜終了後は部員もアップロードできる） ----------
   const rcOpen = (d) => d.status === "published" || d.status === "done";
   function receiptsButton(d) {
-    if (!rcOpen(d)) return "";
+    if (!rcOpen(d) || !canSeePosts()) return "";
     return '<button class="btn" type="button" data-receipts>領収書を見る・アップロード（' + dayReceipts(d.id).length + "件）</button>";
   }
   function receiptsView(id) {
     const d = { id, ...state.days[id] };
     const list = dayReceipts(id);
+    const pp = people();
     let h = '<section><button class="btn back" data-rc-back type="button">← この日に戻る</button>' +
       '<div class="day"><div class="day-h"><div><b>' + fmtDate(d.date) + '</b> <span class="sub">' + esc(d.note || "") + "</span></div>" +
       '<span class="status st-' + d.status + '">' + STATUS[d.status] + "</span></div></div></section>" +
       '<section><h2>領収書 <small>' + list.length + "件</small></h2>";
-    if (rcOpen(d)) {
-      h += '<div class="panel"><label class="f">名前' + nameSelect("r-name") + "</label>" +
+    if (!canSeePosts()) return h + postGate("領収書") + "</section>";
+    const gate = postGate("領収書");
+    if (!rcOpen(d)) h += '<p class="hint">アップロードできるのは公開中と終了後の日程だけです。</p>';
+    else if (gate) h += gate;
+    else {
+      h += '<div class="panel">' + meField("r-name") +
         '<label class="f">領収書・レシートの画像<input type="file" id="r-file" accept="image/*"></label>' +
         (ui.rcImage ? '<img class="rc-prev" src="' + ui.rcImage + '" alt="選んだ画像">' : "") +
         '<label class="f">備考（任意）<textarea id="r-note" maxlength="300" placeholder="１年生は全額、部員の補助は500円までになります。"></textarea></label>' +
         '<button class="btn primary" type="button" data-post-receipt' + (ui.rcBusy ? " disabled" : "") + ">" + (ui.rcBusy ? "アップロード中…" : "アップロード") + "</button></div>";
-    } else h += '<p class="hint">アップロードできるのは公開中と終了後の日程だけです。</p>';
-    // 書いた人がこの日のどのグループにいたか（名前で照合）
-    const groupOf = {};
-    (d.groups || []).forEach((g, gi) => (g.sIds || []).forEach((sid) => { if (state.seniors[sid]) groupOf[state.seniors[sid].name] = gi; }));
-    Object.entries(d.fGroup || {}).forEach(([fid, gi]) => { if (state.freshmen[fid]) groupOf[state.freshmen[fid].name] = gi; });
+    }
+    // 書いた人がこの日のどのグループにいたか（id で照合。古い領収書は名前で）
+    const groupOf = {}, groupOfName = {};
+    const mark = (id, gi) => { groupOf[id] = gi; if (pp[id]) groupOfName[pp[id].name] = gi; };
+    (d.groups || []).forEach((g, gi) => (g.sIds || []).forEach((sid) => mark(sid, gi)));
+    Object.entries(d.fGroup || {}).forEach(([fid, gi]) => mark(fid, gi));
+    const gOf = (r) => (r.pid && r.pid in groupOf ? groupOf[r.pid] : groupOfName[r.name]);
     if (list.length) {
-      h += '<div class="grp">' + list.map((r) => '<div class="rc"><div class="cmt-h"><span><b>' + esc(r.name) + "</b>" +
-        (r.name in groupOf ? '<span class="chip" style="margin-left:6px">グループ' + GL[groupOf[r.name]] + "</span>" : "") + "　" + fmtTime(r.at) + "</span>" +
-        (canEdit ? '<button class="btn small danger" type="button" data-del-rc="' + esc(r.id) + '">削除</button>' : "") + "</div>" +
-        '<img src="' + receiptUrl(r) + '" alt="' + esc(r.name) + 'さんの領収書" data-view-rc="' + esc(r.id) + '">' +
-        (r.note ? "<p>" + esc(r.note) + "</p>" : "") + "</div>").join("") + "</div>";
+      h += '<div class="grp">' + list.map((r) => {
+        const gi = gOf(r), name = authorName(r, pp);
+        return '<div class="rc"><div class="cmt-h"><span><b>' + esc(name) + "</b>" +
+          (gi !== undefined ? '<span class="chip" style="margin-left:6px">グループ' + GL[gi] + "</span>" : "") + (canEdit ? deviceTag(r, pp) : "") + "　" + fmtTime(r.at) + "</span>" +
+          (canEdit ? '<button class="btn small danger" type="button" data-del-rc="' + esc(r.id) + '">削除</button>' : "") + "</div>" +
+          '<img src="' + receiptUrl(r) + '" alt="' + esc(name) + 'さんの領収書" data-view-rc="' + esc(r.id) + '">' +
+          (r.note ? "<p>" + esc(r.note) + "</p>" : "") + "</div>";
+      }).join("") + "</div>";
     } else h += '<p class="hint">まだ領収書はありません。</p>';
+    if (canEdit) h += trashBox("receipts", dayReceipts(id, true), (r) => '<img src="' + receiptUrl(r) + '" alt="" data-view-rc="' + esc(r.id) + '">' + (r.note ? "<p>" + esc(r.note) + "</p>" : ""));
     return h + "</section>";
+  }
+
+  // 編集者だけに見えるゴミ箱。body(item) で中身の表示を決める
+  function trashBox(kind, items, body) {
+    if (!items.length) return "";
+    const pp = people();
+    return '<details data-k="trash-' + kind + '" style="margin-top:10px"><summary>ゴミ箱（' + items.length + "件）</summary>" +
+      '<p class="hint">部員には見えていません。「元に戻す」で一覧に戻ります。</p><div class="grp">' +
+      items.map((x) => '<div class="rc"><div class="cmt-h"><span><b>' + esc(authorName(x, pp)) + "</b>　" + fmtTime(x.at) + "</span>" +
+        '<span style="display:flex;gap:6px"><button class="btn small" type="button" data-trash="' + kind + ":" + esc(x.id) + ':restore">元に戻す</button>' +
+        '<button class="btn small danger" type="button" data-trash="' + kind + ":" + esc(x.id) + ':purge">完全に削除</button></span></div>' + body(x) + "</div>").join("") +
+      "</div></details>";
   }
 
   // ---------- コメント（公開中は部員も書ける） ----------
   function commentsSection(d) {
     const list = dayComments(d.id);
+    const trash = canEdit ? dayComments(d.id, true) : [];
     const open = d.status === "published";
-    if (!open && !list.length) return "";
+    if (!open && !list.length && !trash.length) return "";
     let h = '<section><h2>コメント <small>' + list.length + "件</small></h2>";
-    if (open) {
-      h += '<div class="panel"><label class="f">名前' + nameSelect("c-name") + "</label>" +
+    if (!canSeePosts()) return h + postGate("コメント") + "</section>";
+    const gate = postGate("コメント");
+    if (!open) h += '<p class="hint">コメントできるのは公開中の日程だけです。</p>';
+    else if (gate) h += gate;
+    else {
+      h += '<div class="panel">' + meField("c-name") +
         '<label class="f">内容<textarea id="c-text" maxlength="300" placeholder="欠席連絡はこちら。交代など当日の連絡は担当のメンバーが確定してから共有してください。"></textarea></label>' +
         '<button class="btn primary" type="button" data-post-comment>コメントを送る</button></div>';
-    } else h += '<p class="hint">コメントできるのは公開中の日程だけです。</p>';
+    }
+    const pp = people();
     if (list.length) {
-      h += '<div class="grp">' + list.map((c) => '<div class="cmt"><div class="cmt-h"><span><b>' + esc(c.name) + "</b>　" + fmtTime(c.at) + "</span>" +
+      h += '<div class="grp">' + list.map((c) => '<div class="cmt"><div class="cmt-h"><span><b>' + esc(authorName(c, pp)) + "</b>" + (canEdit ? deviceTag(c, pp) : "") + "　" + fmtTime(c.at) + "</span>" +
         (canEdit ? '<button class="btn small danger" type="button" data-del-cmt="' + esc(c.id) + '">削除</button>' : "") + "</div><p>" + esc(c.text) + "</p></div>").join("") + "</div>";
     }
+    h += trashBox("comments", trash, (c) => "<p>" + esc(c.text) + "</p>");
     return h + "</section>";
+  }
+  // 編集者向け: どの端末から書かれたか。その端末でログインしている名前と違えばそれも出す
+  function deviceTag(c, pp) {
+    if (!c.uid) return '<span class="chip dev">端末不明</span>';
+    const own = ownersMap()[c.uid];
+    const ownP = own && (pp || people())[own.pid];
+    return '<span class="chip dev' + (blockedMap()[c.uid] ? " ng" : "") + '">端末 ' + devCode(c.uid) + (blockedMap()[c.uid] ? "・ブロック中" : "") + "</span>" +
+      (ownP && c.pid && c.pid !== own.pid ? '<span class="chip dev ng">ログイン名：' + esc(ownP.name) + "</span>" : "");
+  }
+
+  // ---------- 部員リスト（編集者） ----------
+  const tsMs = (t) => (t && t.toMillis ? t.toMillis() : Number(t) || 0);
+  const allComments = () => (Store.mode === "local" ? Object.entries(state.comments || {}).map(([id, c]) => ({ id, ...c })) : remoteComments);
+  // その部員がログインしている端末 {uid, at}（なければ null）
+  const loginOf = (pid) => { const n = namesMap()[pid]; return n && n.uid ? n : null; };
+  const commentsOf = (p, all) => (all || allComments()).filter((c) => (c.pid ? c.pid === p.id : c.name === p.name)).sort((a, b) => b.at - a.at);
+
+  function membersView() {
+    const g = ui.memGrade || "all";
+    const pp = people(), all = allComments();
+    const list = Object.values(pp).filter((p) => g === "all" || String(p.grade) === g).sort(byGradeName);
+    const filter = '<div class="seg" style="margin-bottom:8px">' + [["all", "全体"], ["1", "1年"], ["2", "2年"], ["3", "3年"], ["4", "4年"]].map(([v, l]) =>
+      '<button type="button" data-memg="' + v + '" aria-pressed="' + (g === v) + '">' + l + "</button>").join("") + "</div>";
+    const nLogin = list.filter((p) => loginOf(p.id)).length;
+    let h = '<section><h2>部員を追加</h2><form class="panel" id="f-member"><label class="f">名前<input type="text" id="m-name" required maxlength="30" autocomplete="off" placeholder="例：山田 太郎"></label>' +
+      '<div class="row"><div class="f">学年' + segHtml("m-grade", [[1, "1年"], [2, "2年"], [3, "3年"], [4, "4年"]], 4) + '</div><div class="f">性別' + segHtml("m-gender", [["男", "男"], ["女", "女"]], "男") + "</div></div>" +
+      '<p class="hint">1年生は連れていく人、2・3年生はごはんポイントの対象として登録されます。4年生はログインとコメント・領収書だけができます。</p>' +
+      '<button class="btn primary" type="submit">追加する</button></form></section>';
+    h += '<section><h2>部員一覧 <small>' + list.length + "人（ログイン済み " + nLogin + "人）</small></h2>" + filter + '<ul class="list">' +
+      (list.length ? list.map((p) => {
+        const lg = loginOf(p.id), bl = lg && blockedMap()[lg.uid];
+        return '<li class="tap" data-member="' + esc(p.id) + '" tabindex="0" role="button" style="grid-template-columns:1fr auto"><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) +
+          (lg ? '<span class="chip dev' + (bl ? " ng" : "") + '">端末 ' + devCode(lg.uid) + (bl ? "・ブロック中" : "") + "</span>" : '<span class="chip">未ログイン</span>') +
+          '</small></div><div class="pt">' + commentsOf(p, all).length + "<small>件</small></div></li>";
+      }).join("") : '<li class="blank">この学年の部員はいません。</li>') + "</ul></section>";
+    return h + orphanDevices(pp, all);
+  }
+
+  // 名前と結びついていない端末（ログインを解除した後にブロックしたい場合など）
+  function orphanDevices(pp, all) {
+    const blocked = blockedMap(), owners = ownersMap(), names = namesMap();
+    const bound = (u) => { const o = owners[u]; return o && pp[o.pid] && names[o.pid] && names[o.pid].uid === u; };
+    const count = {};
+    all.forEach((c) => { if (c.uid) count[c.uid] = (count[c.uid] || 0) + 1; });
+    const ids = Array.from(new Set(Object.keys(blocked).concat(Object.keys(count)))).filter((u) => !bound(u) && !(canEdit && u === myUid()));
+    if (!ids.length) return "";
+    const nameOf = (u) => (blocked[u] && blocked[u].name) || (all.find((c) => c.uid === u) || {}).name || "";
+    return '<section><h2>名前と結びついていない端末 <small>' + ids.length + "台</small></h2>" +
+      '<p class="hint">ログインを解除した端末や、以前の仕組みでコメントした端末です。</p><ul class="list">' +
+      ids.map((u) => '<li style="grid-template-columns:1fr auto"><div class="who"><b>' + (esc(nameOf(u)) || "（名前なし）") + "</b><small>" +
+        '<span class="chip dev' + (blocked[u] ? " ng" : "") + '">端末 ' + devCode(u) + (blocked[u] ? "・ブロック中" : "") + "</span>コメント " + (count[u] || 0) + "件</small></div>" +
+        (blocked[u] ? '<button class="btn small" type="button" data-unblock="' + esc(u) + '">ブロック解除</button>'
+          : '<button class="btn small danger" type="button" data-block="' + esc(u) + '">ブロック</button>') + "</li>").join("") + "</ul></section>";
+  }
+
+  // 学年に合わせて保存先（1年 / 2・3年 / 4年）を移す。まだ終わっていない日程の振り分けからは外す
+  const catOf = (grade) => (grade === 1 ? "freshmen" : grade === 4 ? "elders" : "seniors");
+  function updatePerson(pid, name, grade, gender) {
+    return save((s) => {
+      s.elders = s.elders || {};
+      const from = ["freshmen", "seniors", "elders"].find((k) => s[k][pid]);
+      if (!from) return;
+      const to = catOf(grade);
+      const rec = Object.assign({}, s[from][pid], { name, gender });
+      if (to === "seniors") { rec.grade = grade; rec.count = rec.count || 0; rec.points = rec.points || 0; } else delete rec.grade;
+      if (from !== to) {
+        delete s[from][pid];
+        Object.values(s.days).forEach((d) => {
+          if (d.status === "done") return;
+          if (from === "seniors") { (d.groups || []).forEach((g) => { g.sIds = (g.sIds || []).filter((x) => x !== pid); }); d.absent = (d.absent || []).filter((x) => x !== pid); }
+          if (from === "freshmen" && d.fGroup) delete d.fGroup[pid];
+        });
+      }
+      s[to][pid] = rec;
+    }, "保存しました");
+  }
+  async function deletePerson(pid) {
+    const lg = loginOf(pid);
+    const ok = await save((s) => {
+      ["freshmen", "seniors", "elders"].forEach((k) => { if (s[k]) delete s[k][pid]; });
+      Object.values(s.days).forEach((d) => {
+        if (d.status === "done") return;
+        (d.groups || []).forEach((g) => { g.sIds = (g.sIds || []).filter((x) => x !== pid); });
+        d.absent = (d.absent || []).filter((x) => x !== pid);
+        if (d.fGroup) delete d.fGroup[pid];
+      });
+    }, "削除しました");
+    if (ok && lg) await releaseOwner(lg.uid);
+    return ok;
+  }
+
+  function openMember(pid) {
+    const p = people()[pid]; if (!p) return;
+    const lg = loginOf(pid);
+    const bl = lg && blockedMap()[lg.uid];
+    const cs = commentsOf(p);
+    const dayName = (id) => (state.days[id] ? fmtDate(state.days[id].date) : "削除した日程");
+    sheet("<h3>" + esc(p.name) + "</h3>" +
+      '<label class="f">名前<input type="text" id="x-name" maxlength="30" value="' + esc(p.name) + '"></label>' +
+      '<div class="row"><div class="f">学年' + segHtml("x-grade", [[1, "1年"], [2, "2年"], [3, "3年"], [4, "4年"]], p.grade) + '</div><div class="f">性別' + segHtml("x-gender", [["男", "男"], ["女", "女"]], p.gender) + "</div></div>" +
+      '<p class="hint">1年・2〜3年・4年の間で学年を変えると、まだ終わっていない日程の振り分けからは外れます。ごはんポイントと回数は残ります。</p>' +
+      '<button class="btn primary" type="button" id="x-save">名前・学年・性別を保存</button>' +
+      '<h3 class="sub-h">ログイン</h3>' +
+      (lg ? "<p>端末 <b>" + devCode(lg.uid) + "</b> でログイン中" + (tsMs(lg.at) ? "（" + fmtTime(tsMs(lg.at)) + "〜）" : "") + (bl ? '・<b class="ng-t">ブロック中</b>' : "") + "</p>" +
+          '<div class="btns"><button class="btn" type="button" id="x-release">ログインを解除</button>' +
+          (bl ? '<button class="btn" type="button" id="x-unblock">ブロック解除</button>' : '<button class="btn danger" type="button" id="x-block">ブロック</button>') + "</div>" +
+          '<p class="hint">ログインを解除すると、名前を選び直せるようになります（機種変更のときなど）。ブロックすると、この端末からはコメントも領収書も送れなくなります。</p>'
+        : '<p class="hint">まだどの端末からもログインしていません。</p>') +
+      '<h3 class="sub-h">コメントの履歴（' + cs.length + "件）</h3>" +
+      (cs.length ? '<div class="grp">' + cs.map((c) => '<div class="cmt"><div class="cmt-h"><span><b>' + dayName(c.dayId) + "</b>　" + fmtTime(c.at) +
+          (c.uid ? '<span class="chip dev">端末 ' + devCode(c.uid) + "</span>" : "") + (c.deletedAt ? '<span class="chip dev ng">削除済み</span>' : "") + "</span></div><p>" + esc(c.text) + "</p></div>").join("") + "</div>"
+        : '<p class="hint">まだコメントはありません。</p>') +
+      '<div class="btns"><button class="btn" type="button" data-close>閉じる</button><button class="btn danger" type="button" id="x-del">この人を削除</button></div>', (close) => {
+      $("#x-save").onclick = () => {
+        const name = $("#x-name").value.trim().slice(0, 30);
+        if (!name) { toast("名前を入力してください"); return; }
+        if (Object.values(people()).some((q) => q.id !== pid && q.name === name)) { toast("同じ名前の人がすでにいます"); return; }
+        updatePerson(pid, name, Number(segVal("x-grade")), segVal("x-gender")).then((ok) => ok && close());
+      };
+      const rel = $("#x-release"), blk = $("#x-block"), ubl = $("#x-unblock");
+      if (rel) rel.onclick = (e) => { if (armed(e.currentTarget, "もう一度押すと解除")) releaseOwner(lg.uid).then(close); };
+      if (blk) blk.onclick = (e) => { if (armed(e.currentTarget, "もう一度押すとブロック")) setBlocked(lg.uid, true).then(close); };
+      if (ubl) ubl.onclick = () => setBlocked(lg.uid, false).then(close);
+      $("#x-del").onclick = (e) => { if (armed(e.currentTarget, "もう一度押すと削除します")) deletePerson(pid).then((ok) => ok && close()); };
+    });
+  }
+
+  // ---------- 「あなたはだれですか」（部員が最初に名前を決める） ----------
+  function openChooser() {
+    if (ui.chooserOpen) return;
+    ui.chooserOpen = true;
+    const step1 = () => "<h3>あなたはだれですか？</h3>" +
+      '<p class="note-warn">※注意：本人以外の名前を選ばないようにしてください。一度名前を選ぶと変更することはできず、使用している端末で保存されます。</p>' +
+      '<label class="f">名前' + nameSelect("who-sel", namesMap(), "（ログイン済み）") + "</label>" +
+      '<button class="btn primary" type="button" id="who-next">この名前にする</button>' +
+      '<button class="btn" type="button" id="who-none">この中に名前がない</button>' +
+      '<p class="hint">「この中に名前がない」を選ぶと、ログインせずにグループだけ見られます（コメントや領収書は使えません）。あとから画面上の「名前を決める」でいつでも選べます。</p>';
+    sheet(step1(), (close) => {
+      const box = $("#scrim .sheet");
+      const done = () => { ui.chooserOpen = false; close(); render(); };
+      const bind1 = () => {
+        $("#who-none").onclick = () => { setGuest(true); done(); toast("ログインせずに見ています"); };
+        $("#who-next").onclick = () => {
+          const p = people()[$("#who-sel").value];
+          if (!p) { toast("名前を選んでください"); return; }
+          box.innerHTML = "<h3>確認</h3><p>本当に <b>" + esc(p.name) + "</b>（" + p.grade + "年）さんでよろしいですか？</p>" +
+            '<p class="note-warn">決定すると、この端末ではほかの名前に変更できません。</p>' +
+            '<button class="btn primary" type="button" id="who-ok">はい、' + esc(p.name) + " です</button>" +
+            '<button class="btn" type="button" id="who-back">選び直す</button>';
+          $("#who-back").onclick = () => { box.innerHTML = step1(); bind1(); };
+          $("#who-ok").onclick = async (e) => {
+            e.currentTarget.disabled = true;
+            const r = await claimName(p.id);
+            if (r === "ok") { setGuest(false); done(); toast(p.name + " さんとしてログインしました"); return; }
+            toast(r === "taken" ? "この名前はすでに別の端末でログインされています。本人の場合は管理者に連絡してください"
+              : r === "noauth" ? POST_MSG.noauth : "ログインできませんでした。通信を確認してください");
+            box.innerHTML = step1(); bind1();
+          };
+        };
+      };
+      bind1();
+    }, true);
   }
   const fmtTime = (ms) => { const d = new Date(ms); return (d.getMonth() + 1) + "/" + d.getDate() + " " + d.getHours() + ":" + String(d.getMinutes()).padStart(2, "0"); };
 
@@ -712,31 +1194,40 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     if (t.closest("[data-back]")) { go({ dayId: null }); return; }
     const pc = t.closest("[data-post-comment]");
     if (pc && ui.dayId) {
-      const name = $("#c-name").value, text = $("#c-text").value.trim().slice(0, 300);
-      if (!name) { toast("名前を選んでください"); return; }
+      const sel = $("#c-name"), pid = sel ? sel.value : null, text = $("#c-text").value.trim().slice(0, 300);
+      if (canEdit && !pid) { toast("名前を選んでください"); return; }
       if (!text) { toast("内容を入力してください"); return; }
       pc.disabled = true;
-      postComment(ui.dayId, name, text).then((ok) => {
-        if (ok) { const ta = $("#c-text"); if (ta) ta.value = ""; toast("コメントを送りました"); }
-        else toast("送れませんでした。公開中の日程か確認してください");
+      postComment(ui.dayId, pid, text).then((r) => {
+        if (r === "ok") { const ta = $("#c-text"); if (ta) ta.value = ""; }
+        toast(r === "ok" ? "コメントを送りました" : POST_MSG[r]);
         const b = $("[data-post-comment]"); if (b) b.disabled = false;
       });
       return;
     }
+    if (t.closest("[data-choose]")) { openChooser(); return; }
+    const memg = t.closest("[data-memg]");
+    if (memg) { ui.memGrade = memg.dataset.memg; render(); return; }
+    const mem = t.closest("[data-member]");
+    if (mem && canEdit) { openMember(mem.dataset.member); return; }
+    const bl = t.closest("[data-block]");
+    if (bl && canEdit) { if (armed(bl, "もう一度押すとブロック")) setBlocked(bl.dataset.block, true); return; }
+    const ub = t.closest("[data-unblock]");
+    if (ub && canEdit) { setBlocked(ub.dataset.unblock, false); return; }
     const ptg = t.closest("[data-ptg]");
     if (ptg) { ui.ptGrade = ptg.dataset.ptg; render(); return; }
     if (t.closest("[data-receipts]")) { go({ receipts: true }); return; }
     if (t.closest("[data-rc-back]")) { go({ receipts: false }); return; }
     const pr = t.closest("[data-post-receipt]");
     if (pr && ui.dayId) {
-      const name = $("#r-name").value, note = $("#r-note").value.trim().slice(0, 300);
-      if (!name) { toast("名前を選んでください"); return; }
+      const sel = $("#r-name"), pid = sel ? sel.value : null, note = $("#r-note").value.trim().slice(0, 300);
+      if (canEdit && !pid) { toast("名前を選んでください"); return; }
       if (!ui.rcImage) { toast("画像を選んでください"); return; }
       ui.rcBusy = true; render();
-      postReceipt(ui.dayId, name, note, ui.rcImage).then((ok) => {
+      postReceipt(ui.dayId, pid, note, ui.rcImage).then((r) => {
         ui.rcBusy = false;
-        if (ok) { ui.rcImage = null; const ta = $("#r-note"); if (ta) ta.value = ""; toast("領収書をアップロードしました"); }
-        else toast("アップロードできませんでした。通信を確認してください");
+        if (r === "ok") { ui.rcImage = null; const ta = $("#r-note"); if (ta) ta.value = ""; toast("領収書をアップロードしました"); }
+        else toast(POST_MSG[r]);
         render();
       });
       return;
@@ -744,9 +1235,29 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     const vr = t.closest("[data-view-rc]");
     if (vr) { sheet('<img class="rc-full" src="' + vr.getAttribute("src") + '" alt=""><button class="btn" type="button" data-close>閉じる</button>', () => {}); return; }
     const dr = t.closest("[data-del-rc]");
-    if (dr && canEdit) { if (armed(dr, "もう一度押すと削除")) deleteReceipt(dr.dataset.delRc); return; }
+    if (dr && canEdit) { if (armed(dr, "もう一度押すと削除")) trashOp("receipts", dr.dataset.delRc, "trash"); return; }
+    const tb = t.closest("[data-trash]");
+    if (tb && canEdit) {
+      const [kind, id, op] = tb.dataset.trash.split(":");
+      if (op !== "purge" || armed(tb, "もう一度押すと完全に削除")) trashOp(kind, id, op);
+      return;
+    }
+    const bk = t.closest("[data-backup]");
+    if (bk && canEdit) {
+      bk.disabled = true; toast("バックアップを作っています…");
+      downloadBackup().then(() => toast("バックアップを保存しました"), (e) => { console.error(e); toast("バックアップを作れませんでした"); })
+        .finally(() => { bk.disabled = false; });
+      return;
+    }
+    const il = t.closest("[data-import-live]");
+    if (il && canEdit) {
+      if (!armed(il, "今のテストデータを上書きします。もう一度押す")) return;
+      il.disabled = true; toast("本番のデータを読み込んでいます…");
+      importLive().catch((e) => { console.error(e); toast("読み込めませんでした。リンクの鍵（#以降）を確認してください"); }).finally(() => { il.disabled = false; });
+      return;
+    }
     const dc = t.closest("[data-del-cmt]");
-    if (dc && canEdit) { if (armed(dc, "もう一度押すと削除")) deleteComment(dc.dataset.delCmt); return; }
+    if (dc && canEdit) { if (armed(dc, "もう一度押すと削除")) trashOp("comments", dc.dataset.delCmt, "trash"); return; }
     if (t.closest("[data-copy-link]")) {
       const url = location.href;
       const ok = () => toast("リンクをコピーしました。LINEなどで部員に送ってください");
@@ -848,6 +1359,36 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       }, () => toast("この画像は読み込めませんでした"));
       return;
     }
+    if (t.id === "restore-file" && canEdit && t.files && t.files[0]) {
+      const file = t.files[0];
+      t.value = "";
+      file.text().then((txt) => {
+        let b = null;
+        try { b = JSON.parse(txt); } catch (e) {}
+        if (!isBackup(b)) { toast("このファイルはバックアップではありません"); return; }
+        const m = normalize(b.main);
+        sheet("<h3>バックアップから復元</h3>" +
+          '<p class="hint">' + new Date(b.savedAt).toLocaleString("ja-JP") + " に保存したバックアップです。<br>日程 " + Object.keys(m.days).length +
+          "件・新上級生 " + Object.keys(m.seniors).length + "人・1年生 " + Object.keys(m.freshmen).length + "人・コメント " + Object.keys(b.comments || {}).length +
+          "件・領収書 " + Object.keys(b.receipts || {}).length + "件</p>" +
+          '<p class="hint">日程とメンバーはこの時点に戻ります。復元の直前に、今の状態を自動でバックアップします。</p>' +
+          '<button class="btn danger" type="button" id="do-restore">復元する</button><button class="btn" type="button" data-close>やめる</button>', (close) => {
+          $("#do-restore").addEventListener("click", async (e) => {
+            const btn = e.currentTarget;
+            btn.disabled = true; btn.textContent = "復元しています…";
+            try {
+              await downloadBackup();
+              await restoreBackup(b);
+              close(); toast("復元しました");
+            } catch (err) {
+              console.error(err); btn.disabled = false; btn.textContent = "復元する";
+              toast("復元できませんでした。ログイン状態と通信を確認してください");
+            }
+          });
+        });
+      });
+      return;
+    }
     if (!canEdit || !ui.dayId) return;
     if (t.dataset.pickF) {
       const id = t.dataset.pickF, on = t.checked;
@@ -889,26 +1430,34 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     } else if (f.id === "f-senior") {
       const name = $("#s-name").value.trim().slice(0, 30);
       if (!name) return;
-      if (Object.values(state.seniors).some((p) => p.name === name)) { toast("同じ名前の人がすでにいます"); return; }
+      if (Object.values(people()).some((p) => p.name === name)) { toast("同じ名前の人がすでにいます"); return; }
       const rec = { name, grade: Number(segVal("s-grade")), gender: segVal("s-gender"), count: Math.max(0, parseInt($("#s-count").value, 10) || 0), points: parseFloat($("#s-points").value) || 0 };
       save((s) => { s.seniors[uid()] = rec; }, name + " さんを追加しました").then((ok) => ok && $("#s-name") && $("#s-name").focus());
     } else if (f.id === "f-fresh") {
       const name = $("#fr-name").value.trim().slice(0, 30);
       if (!name) return;
-      if (Object.values(state.freshmen).some((p) => p.name === name)) { toast("同じ名前の人がすでにいます"); return; }
+      if (Object.values(people()).some((p) => p.name === name)) { toast("同じ名前の人がすでにいます"); return; }
       const rec = { name, gender: segVal("fr-gender") };
       save((s) => { s.freshmen[uid()] = rec; }, name + " さんを追加しました").then((ok) => ok && $("#fr-name") && $("#fr-name").focus());
+    } else if (f.id === "f-member") {
+      const name = $("#m-name").value.trim().slice(0, 30);
+      if (!name) return;
+      if (Object.values(people()).some((p) => p.name === name)) { toast("同じ名前の人がすでにいます"); return; }
+      const grade = Number(segVal("m-grade")), gender = segVal("m-gender"), to = catOf(grade);
+      const rec = to === "seniors" ? { name, grade, gender, count: 0, points: 0 } : { name, gender };
+      save((s) => { s.elders = s.elders || {}; s[to][uid()] = rec; }, name + " さん（" + grade + "年）を追加しました").then((ok) => ok && $("#m-name") && $("#m-name").focus());
     }
   });
 
   // ================= シート（編集・ログイン） =================
-  function sheet(html, onReady) {
+  // sticky = true のときは外側タップや Esc では閉じない（必ずどれかを選んでもらう画面用）
+  function sheet(html, onReady, sticky) {
     const root = $("#sheet-root");
     root.innerHTML = '<div class="scrim" id="scrim"><div class="sheet" role="dialog" aria-modal="true">' + html + "</div></div>";
     const close = () => { root.innerHTML = ""; document.removeEventListener("keydown", onKey); };
-    function onKey(e) { if (e.key === "Escape") close(); }
+    function onKey(e) { if (e.key === "Escape" && !sticky) close(); }
     document.addEventListener("keydown", onKey);
-    $("#scrim").addEventListener("click", (e) => { if (e.target.id === "scrim" || e.target.closest("[data-close]")) close(); });
+    $("#scrim").addEventListener("click", (e) => { if ((e.target.id === "scrim" && !sticky) || e.target.closest("[data-close]")) close(); });
     onReady(close);
   }
   function copyByTextarea(text) {
