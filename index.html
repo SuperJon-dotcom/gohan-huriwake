@@ -166,6 +166,11 @@ details summary { cursor: pointer; font-size: 13px; font-weight: 700; color: var
 .day-h { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .day-h b { font-family: var(--f-display); font-weight: 400; font-size: 20px; }
 .day-h .sub { color: var(--muted); font-size: 12px; }
+.cnts { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+/* 終わった日程は小さく1行でまとめる */
+.day.compact { padding: 10px 14px; gap: 6px; }
+.day.compact .day-h b { font-size: 16px; }
+.day.compact .hint { margin: 0; }
 
 /* group cards */
 .grp { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface); }
@@ -310,6 +315,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     }
     firebase.initializeApp(window.FIREBASE_CONFIG);
     Store.ref = firebase.firestore().doc("spaces/" + key);
+    watchReceipts(Store.ref);
     Store.ref.onSnapshot((snap) => {
       state = normalize(snap.exists ? snap.data() : null);
       ready = true; render();
@@ -587,25 +593,48 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       else delete x.deletedAt;
     }, TRASH_MSG[op]);
     const ref = Store.ref.collection(kind).doc(id);
-    const p = op === "purge" ? ref.delete() : ref.update({ deletedAt: op === "trash" ? Date.now() : firebase.firestore.FieldValue.delete() });
+    let p;
+    if (op === "purge" && kind === "receipts") {
+      // 領収書は画像も一緒に消す
+      const b = Store.ref.firestore.batch();
+      b.delete(ref); b.delete(Store.ref.collection("receiptImages").doc(id));
+      p = b.commit();
+    } else p = op === "purge" ? ref.delete() : ref.update({ deletedAt: op === "trash" ? Date.now() : firebase.firestore.FieldValue.delete() });
     return p.then(() => toast(TRASH_MSG[op]), (e) => { console.error(e); toast("できませんでした。ログイン状態を確認してください"); });
   }
 
-  // 領収書は画像が大きいので、開いている日程の分だけ読み込む。テストモードでは state.receipts に入れる
-  let remoteReceipts = [], rcWatch = { dayId: null, off: null };
-  function watchReceipts(dayId) {
-    if (Store.mode === "local" || !Store.ref || rcWatch.dayId === dayId) return;
-    if (rcWatch.off) rcWatch.off();
-    remoteReceipts = [];
-    rcWatch = { dayId, off: null };
-    if (!dayId) return;
-    rcWatch.off = Store.ref.collection("receipts").where("dayId", "==", dayId).onSnapshot((snap) => {
+  // 領収書は「中身（名前・備考・日時）」を receipts、「画像」を receiptImages に分けて保存する。
+  // 中身は小さいので全日程分をすぐ読み込み（ホームにも件数を出す）、画像は表示するときだけ読む。
+  // 以前は1つの記録に画像まで入れて、開いた日程の分だけ読んでいたため、スマホの回線だと件数や一覧がなかなか出なかった。
+  // 古い領収書は中身に画像が入っているので、そのまま使う。テストモードでは state.receipts に画像ごと入れる
+  let remoteReceipts = [], rcLoaded = Store.mode === "local";
+  function watchReceipts(ref) {
+    ref.collection("receipts").onSnapshot((snap) => {
       remoteReceipts = snap.docs.map((doc) => {
         const x = doc.data({ serverTimestamps: "estimate" });
-        return { id: doc.id, dayId: x.dayId, name: x.name, pid: x.pid || null, uid: x.uid || null, note: x.note || "", image: x.image, deletedAt: x.deletedAt || null, at: x.at && x.at.toMillis ? x.at.toMillis() : Date.now() };
+        return { id: doc.id, dayId: x.dayId, name: x.name, pid: x.pid || null, uid: x.uid || null, note: x.note || "", image: x.image || null, deletedAt: x.deletedAt || null, at: x.at && x.at.toMillis ? x.at.toMillis() : Date.now() };
       });
-      render();
-    }, (e) => console.error(e));
+      rcLoaded = true; render();
+    }, (e) => {
+      // 途中で切れたら少し待ってつなぎ直す（以前はそのまま止まっていた）
+      console.error(e); rcLoaded = true; render();
+      setTimeout(() => watchReceipts(ref), 5000);
+    });
+  }
+  // 画像は id ごとに一度だけ読む。値は data URL / "loading" / "error"
+  const rcImages = new Map();
+  function receiptImage(r) {
+    if (r.image) return r.image;
+    const v = rcImages.get(r.id);
+    if (v === "loading" || v === "error") return null;
+    if (v) return v;
+    if (Store.mode !== "local" && Store.ref) {
+      rcImages.set(r.id, "loading");
+      Store.ref.collection("receiptImages").doc(r.id).get().then(
+        (d) => { rcImages.set(r.id, d.exists && d.data().image ? d.data().image : "error"); render(); },
+        () => { rcImages.set(r.id, "error"); render(); });
+    }
+    return null;
   }
   function dayReceipts(dayId, trashed) {
     const all = Store.mode === "local" ? Object.entries(state.receipts || {}).map(([id, r]) => ({ id, ...r })) : remoteReceipts;
@@ -622,7 +651,13 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       return ok ? "ok" : "error";
     }
     try {
-      await Store.ref.collection("receipts").add({ dayId, name, pid, uid: me, note, image, at: firebase.firestore.FieldValue.serverTimestamp() });
+      // 中身と画像を同時に書く（どちらか片方だけ残ることはない）
+      const ref = Store.ref.collection("receipts").doc();
+      const b = Store.ref.firestore.batch();
+      b.set(ref, { dayId, name, pid, uid: me, note, at: firebase.firestore.FieldValue.serverTimestamp() });
+      b.set(Store.ref.collection("receiptImages").doc(ref.id), { dayId, image });
+      await b.commit();
+      rcImages.set(ref.id, image);
       return "ok";
     } catch (e) { console.error(e); return "error"; }
   }
@@ -632,14 +667,17 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
   async function collectRemote(ref) {
     // owners / names はルールが古いと読めないので、読めなければ空として扱う
     const opt = (q) => q.get().catch(() => ({ forEach() {} }));
-    const [main, cs, rs, os, ns, js] = await Promise.all([ref.get(), ref.collection("comments").get(), ref.collection("receipts").get(),
-      opt(ref.collection("owners")), opt(ref.collection("names")), opt(ref.collection("jokers"))]);
+    const [main, cs, rs, os, ns, js, ri] = await Promise.all([ref.get(), ref.collection("comments").get(), ref.collection("receipts").get(),
+      opt(ref.collection("owners")), opt(ref.collection("names")), opt(ref.collection("jokers")), opt(ref.collection("receiptImages"))]);
     const plain = (doc) => { const x = doc.data(); Object.keys(x).forEach((k) => { if (x[k] && x[k].toMillis) x[k] = x[k].toMillis(); }); return x; };
     const out = { app: "gohan-huriwake", version: 1, savedAt: Date.now(), main: main.exists ? main.data() : empty(), comments: {}, receipts: {}, owners: {}, names: {}, jokers: {} };
     cs.forEach((d) => { out.comments[d.id] = plain(d); });
     rs.forEach((d) => { out.receipts[d.id] = plain(d); });
     os.forEach((d) => { out.owners[d.id] = plain(d); });
     ns.forEach((d) => { out.names[d.id] = plain(d); });
+    js.forEach((d) => { out.jokers[d.id] = plain(d); });
+    // 画像は別に保存しているので、バックアップでは領収書の中に戻して1つにまとめる
+    ri.forEach((d) => { if (out.receipts[d.id] && !out.receipts[d.id].image) out.receipts[d.id].image = d.data().image; });
     return out;
   }
   async function collectBackup() {
@@ -697,14 +735,22 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
   const rcUrls = new Map();
   function receiptUrl(r) {
     if (!rcUrls.has(r.id)) {
+      const data = receiptImage(r);
+      if (!data) return null;
       try {
-        const bin = atob(r.image.slice(r.image.indexOf(",") + 1));
+        const bin = atob(data.slice(data.indexOf(",") + 1));
         const bytes = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
         rcUrls.set(r.id, URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" })));
-      } catch (e) { return r.image; }
+      } catch (e) { return data; }
     }
     return rcUrls.get(r.id);
+  }
+  // 領収書の画像（読み込み中・失敗の表示つき）
+  function receiptImgTag(r, alt) {
+    const u = receiptUrl(r);
+    if (u) return '<img src="' + u + '" alt="' + esc(alt) + '" data-view-rc="' + esc(r.id) + '">';
+    return '<p class="hint">' + (rcImages.get(r.id) === "error" ? "画像を読み込めませんでした。ページを再読み込みしてください。" : "画像を読み込み中…") + "</p>";
   }
   // 画像をスマホ側で縮めて JPEG の data URL にする（1件 約900KB 以内）
   async function compressImage(file) {
@@ -824,7 +870,6 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     const keep = {};
     ["c-name", "c-text", "r-name", "r-note"].forEach((k) => { const el = document.getElementById(k); if (el) keep[k] = el.value; });
     const focused = document.activeElement && document.activeElement.id;
-    watchReceipts(ui.tab === "days" && ui.dayId && state.days[ui.dayId] ? ui.dayId : null);
     if (ui.tab === "days" && ui.dayId && state.days[ui.dayId] && ui.receipts) v.innerHTML = receiptsView(ui.dayId);
     else if (ui.tab === "days" && ui.dayId && state.days[ui.dayId]) v.innerHTML = canEdit ? dayEditor(ui.dayId) : dayDetailView(ui.dayId);
     else if (ui.tab === "days") { ui.dayId = null; v.innerHTML = daysList(); }
@@ -877,18 +922,37 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
         '<label class="f">メモ（任意）<input type="text" id="d-note" maxlength="40" placeholder="例：新歓1回目"></label></div><button class="btn primary" type="submit">この日程を作る</button></form>' +
         (Store.mode === "firebase" ? '<button class="btn" type="button" data-copy-link>部員に送るリンクをコピー</button>' : "") + "</section>";
     }
-    h += "<section><h2>" + (canEdit ? "日程一覧" : "ごはん会の担当") + " <small>" + days.length + "件</small></h2>";
-    if (!days.length) h += '<ul class="list"><li class="blank">' + (canEdit ? "上で日付を入れて日程を作ると、ここに並びます。" : "まだ公開された担当はありません。") + "</li></ul>";
-    days.forEach((d) => {
+    // 1件分のカード。compact = 終わった日程（部員のホームでは1行にまとめ、タップで詳細）
+    const card = (d, compact) => {
       const nF = Object.keys(d.fGroup || {}).length;
-      const nC = dayComments(d.id).length;
-      h += '<div class="day tap" data-open-day="' + d.id + '" tabindex="0" role="button"><div class="day-h"><div><b>' + fmtDate(d.date) + '</b> <span class="sub">' + esc(d.note || "") + "</span></div>" +
+      const nS = (d.groups || []).reduce((a, g) => a + (g.sIds || []).length, 0);
+      const nC = dayComments(d.id).length, nR = dayReceipts(d.id).length;
+      const posts = d.status === "published" || d.status === "done";
+      return '<div class="day tap' + (compact ? " compact" : "") + '" data-open-day="' + d.id + '" tabindex="0" role="button"><div class="day-h"><div><b>' + fmtDate(d.date) + '</b> <span class="sub">' + esc(d.note || "") + "</span></div>" +
         '<span class="status st-' + (d.status || "draft") + '">' + STATUS[d.status || "draft"] + "</span></div>" +
-        (canEdit ? '<p class="hint">1年生 ' + nF + "人・" + (d.groups || []).length + "グループ</p>" : groupSummary(d)) +
-        (nC || d.status === "published" ? '<div style="display:flex;gap:8px;align-items:center"><span class="cnt">コメント ' + nC + "件</span>" +
-          (d.status === "published" ? '<span class="hint">タップして詳細・コメントを開く</span>' : "") + "</div>" : "") + "</div>";
-    });
-    h += "</section>";
+        (canEdit ? '<p class="hint">1年生 ' + nF + "人・" + (d.groups || []).length + "グループ</p>"
+          : compact ? '<p class="hint">' + (d.groups || []).length + "グループ・新上級生 " + nS + "人・1年生 " + nF + "人</p>" : groupSummary(d)) +
+        (posts || nC ? '<div class="cnts"><span class="cnt">コメント ' + nC + "件</span>" + (posts ? '<span class="cnt">領収書 ' + (rcLoaded ? nR : "…") + "件</span>" : "") +
+          (!canEdit ? '<span class="hint">タップして詳細を見る</span>' : "") + "</div>" : "") + "</div>";
+    };
+    if (canEdit) {
+      h += "<section><h2>日程一覧 <small>" + days.length + "件</small></h2>";
+      if (!days.length) h += '<ul class="list"><li class="blank">上で日付を入れて日程を作ると、ここに並びます。</li></ul>';
+      days.forEach((d) => { h += card(d, false); });
+      h += "</section>";
+    } else {
+      // 部員のホーム: 公開中は大きく、終わった日程はコンパクトに
+      const open = days.filter((d) => d.status !== "done"), done = days.filter((d) => d.status === "done");
+      h += "<section><h2>ごはん会の担当 <small>" + open.length + "件</small></h2>";
+      if (!open.length) h += '<ul class="list"><li class="blank">いま公開中の担当はありません。</li></ul>';
+      open.forEach((d) => { h += card(d, false); });
+      h += "</section>";
+      if (done.length) {
+        h += "<section><h2>終わったごはん会 <small>" + done.length + "件</small></h2>";
+        done.forEach((d) => { h += card(d, true); });
+        h += "</section>";
+      }
+    }
     if (canEdit) {
       h += '<section><h2>バックアップ</h2><div class="panel">' +
         '<p class="hint">日程・メンバー・コメント・領収書（画像込み）を1つのファイルにまとめて、この端末に保存します。ご飯会のあとなどに保存しておくと安心です。</p>' +
@@ -1091,11 +1155,11 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
         return '<div class="rc"><div class="cmt-h"><span><b>' + esc(name) + "</b>" +
           (gi !== undefined ? '<span class="chip" style="margin-left:6px">グループ' + GL[gi] + "</span>" : "") + (canEdit ? deviceTag(r, pp) : "") + "　" + fmtTime(r.at) + "</span>" +
           (canEdit ? '<button class="btn small danger" type="button" data-del-rc="' + esc(r.id) + '">削除</button>' : "") + "</div>" +
-          '<img src="' + receiptUrl(r) + '" alt="' + esc(name) + 'さんの領収書" data-view-rc="' + esc(r.id) + '">' +
+          receiptImgTag(r, name + "さんの領収書") +
           (r.note ? "<p>" + esc(r.note) + "</p>" : "") + "</div>";
       }).join("") + "</div>";
-    } else h += '<p class="hint">まだ領収書はありません。</p>';
-    if (canEdit) h += trashBox("receipts", dayReceipts(id, true), (r) => '<img src="' + receiptUrl(r) + '" alt="" data-view-rc="' + esc(r.id) + '">' + (r.note ? "<p>" + esc(r.note) + "</p>" : ""));
+    } else h += '<p class="hint">' + (rcLoaded ? "まだ領収書はありません。" : "読み込み中…") + "</p>";
+    if (canEdit) h += trashBox("receipts", dayReceipts(id, true), (r) => receiptImgTag(r, "") + (r.note ? "<p>" + esc(r.note) + "</p>" : ""));
     return h + "</section>";
   }
 
@@ -1115,12 +1179,13 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
   function commentsSection(d) {
     const list = dayComments(d.id);
     const trash = canEdit ? dayComments(d.id, true) : [];
-    const open = d.status === "published";
+    // 公開中に加えて、終わった日程にもコメントできる
+    const open = d.status === "published" || d.status === "done";
     if (!open && !list.length && !trash.length) return "";
     let h = '<section><h2>コメント <small>' + list.length + "件</small></h2>";
     if (!canSeePosts()) return h + postGate("コメント") + "</section>";
     const gate = postGate("コメント");
-    if (!open) h += '<p class="hint">コメントできるのは公開中の日程だけです。</p>';
+    if (!open) h += '<p class="hint">コメントできるのは公開中と終了後の日程だけです。</p>';
     else if (gate) h += gate;
     else {
       h += '<div class="panel">' + meField("c-name", true) +
