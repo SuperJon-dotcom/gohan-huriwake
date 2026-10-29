@@ -384,6 +384,9 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       if (!canEdit && jokerOff) { jokerOff(); jokerOff = null; remoteJokers = {}; }
       // お問い合わせは編集者なら全員分を読む
       if (canEdit && !adminMsgOff) adminMsgOff = watchAdminMsgs(editorRef);
+      // 最終ログインの記録も編集者だけが読める
+      if (canEdit && !seenOff) seenOff = editorRef.collection("seen").onSnapshot((snap) => { remoteSeen = toMap(snap); render(); }, (e) => console.error(e));
+      if (!canEdit && seenOff) { seenOff(); seenOff = null; remoteSeen = {}; }
       if (!canEdit && adminMsgOff) { adminMsgOff(); adminMsgOff = null; adminMsgs = []; }
       render();
     });
@@ -686,6 +689,30 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       return "ok";
     } catch (e) { console.error(e); return "error"; }
   }
+
+  // ================= 最終ログイン =================
+  // 名前を決めた部員がアプリを開くたびに seen/{端末uid} = {pid, at} を上書きする（10分に1回まで）。読めるのは編集者だけ。
+  // 担当に決まった人がちゃんとアプリを見ているか確かめるため
+  let remoteSeen = {}, seenOff = null, seenWrote = 0;
+  const seenMap = () => (Store.mode === "local" ? state.seen || {} : remoteSeen);
+  function touchSeen(pid) {
+    if (Date.now() - seenWrote < 10 * 60 * 1000) return;
+    seenWrote = Date.now();
+    const me = myUid();
+    if (Store.mode === "local") { save((s) => { s.seen = s.seen || {}; s.seen[me] = { pid, at: Date.now() }; }); return; }
+    Store.ref.collection("seen").doc(me).set({ pid, at: firebase.firestore.FieldValue.serverTimestamp() }).catch((e) => { console.error(e); seenWrote = 0; });
+  }
+  // 部員ごとの最終ログイン（ミリ秒）。端末を替えた人は新しいほう
+  function lastSeenByPid() {
+    const out = {};
+    Object.values(seenMap()).forEach((x) => { const t = tsMs(x.at); if (x.pid && t > (out[x.pid] || 0)) out[x.pid] = t; });
+    return out;
+  }
+  const ago = (ms) => {
+    const m = Math.floor((Date.now() - ms) / 60000);
+    return m < 1 ? "たった今" : m < 60 ? m + "分前" : m < 1440 ? Math.floor(m / 60) + "時間前" : Math.floor(m / 1440) + "日前";
+  };
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) render(); });
 
   // ================= お問い合わせ（部員と管理者の個人メッセージ） =================
   // messages/{id} = {pid（部員）, uid（その部員の端末）, from: "member" | "admin", text, at, readAt（管理者が読んだ時刻）}
@@ -1026,6 +1053,8 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     const nU = mb.hidden ? 0 : canEdit ? msgList().filter((m) => m.from === "member" && !m.readAt).length : myUnread();
     nb.hidden = !nU; nb.textContent = nU > 99 ? "99+" : String(nU);
     mb.setAttribute("aria-label", "お問い合わせ" + (nU ? "（未読 " + nU + "件）" : ""));
+    // 部員としてアプリを開いたことを記録する（編集中は記録しない）
+    if (meP && !canEdit) setTimeout(() => touchSeen(meP.id), 0);
   }
 
   const openKey = (el) => (ui.dayId || "") + ":" + el.dataset.k;
@@ -1058,7 +1087,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
   function daysList() {
     const days = daysArr().filter((d) => canEdit || d.status !== "draft");
     let h = "";
-    if (canEdit) h += inboxCard();
+    if (canEdit) h += inboxCard() + recentLogins();
     if (canEdit) {
       h += '<section><h2>日程を追加</h2><form class="panel" id="f-day"><div class="row"><label class="f">日付<input type="date" id="d-date" required value="' + today() + '"></label>' +
         '<label class="f">メモ（任意）<input type="text" id="d-note" maxlength="40" placeholder="例：新歓1回目"></label></div><button class="btn primary" type="submit">この日程を作る</button></form>' +
@@ -1130,6 +1159,15 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     return '<section><div class="day tap compact" data-inbox tabindex="0" role="button"><div class="day-h"><b>お問い合わせ</b>' +
       (n ? '<span class="nbadge in">' + n + "</span>" : '<span class="hint">新着なし</span>') + "</div>" +
       '<p class="hint">' + (n ? names + " から新着があります。タップして確認" : "タップすると、これまでのやり取りを見られます") + "</p></div></section>";
+  }
+  // 編集者ホーム: 最近アプリを開いた部員（新しい順に5人）
+  function recentLogins() {
+    const pp = people(), ls = lastSeenByPid();
+    const list = Object.entries(ls).filter(([pid]) => pp[pid]).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    return '<section><h2>最近のログイン <small>新しい順に5人</small></h2><ul class="list">' +
+      (list.length ? list.map(([pid, t]) => '<li class="tap" data-member="' + esc(pid) + '" tabindex="0" role="button" style="grid-template-columns:1fr auto;min-height:44px;padding-block:6px"><div class="who"><b>' + esc(pp[pid].name) + "</b><small>" + personLine(pp[pid]) + "</small></div>" +
+        '<div class="pt" style="font-size:13px">' + ago(t) + "<small>" + fmtTime(t) + "</small></div></li>").join("")
+        : '<li class="blank">まだ記録がありません。部員がアプリを開くとここに出ます。</li>') + "</ul></section>";
   }
   function inboxView() {
     const pp = people(), ts = threads();
@@ -1416,7 +1454,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     const list = Object.values(pp).filter((p) => g === "all" || String(p.grade) === g).sort(byGradeName);
     const filter = '<div class="seg" style="margin-bottom:8px">' + [["all", "全体"], ["1", "1年"], ["2", "2年"], ["3", "3年"], ["4", "4年"]].map(([v, l]) =>
       '<button type="button" data-memg="' + v + '" aria-pressed="' + (g === v) + '">' + l + "</button>").join("") + "</div>";
-    const nLogin = list.filter((p) => loginOf(p.id)).length;
+    const nLogin = list.filter((p) => loginOf(p.id)).length, seen = lastSeenByPid();
     let h = '<section><h2>部員を追加</h2><form class="panel" id="f-member"><label class="f">名前<input type="text" id="m-name" required maxlength="30" autocomplete="off" placeholder="例：山田 太郎"></label>' +
       '<div class="row"><div class="f">学年' + segHtml("m-grade", [[1, "1年"], [2, "2年"], [3, "3年"], [4, "4年"]], 4) + '</div><div class="f">性別' + segHtml("m-gender", [["男", "男"], ["女", "女"]], "男") + "</div></div>" +
       '<p class="hint">1年生は連れていく人、2・3年生はごはんポイントの対象として登録されます。4年生はログインとコメント・領収書だけができます。</p>' +
@@ -1426,6 +1464,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
         const lg = loginOf(p.id), bl = lg && blockedMap()[lg.uid], nU = unreadOf(p.id);
         return '<li class="tap" data-member="' + esc(p.id) + '" tabindex="0" role="button" style="grid-template-columns:1fr auto"><div class="who"><b>' + esc(p.name) + (nU ? '<span class="nbadge in">' + nU + "</span>" : "") + "</b><small>" + personLine(p) + jokeChip(p.id) +
           (lg ? '<span class="chip dev' + (bl ? " ng" : "") + '">端末 ' + devCode(lg.uid) + (bl ? "・ブロック中" : "") + "</span>" : '<span class="chip">未ログイン</span>') +
+          (seen[p.id] ? '<span class="chip">最終 ' + ago(seen[p.id]) + "</span>" : "") +
           '</small></div><div class="pt">' + commentsOf(p, all).length + "<small>件</small></div></li>";
       }).join("") : '<li class="blank">この学年の部員はいません。</li>') + "</ul></section>";
     return h + orphanDevices(pp, all);
@@ -1503,6 +1542,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       '<p class="hint">1年・2〜3年・4年の間で学年を変えると、まだ終わっていない日程の振り分けからは外れます。ごはんポイントと回数は残ります。</p>' +
       '<button class="btn primary" type="button" id="x-save">名前・学年・性別・FMを保存</button>' +
       '<h3 class="sub-h">ログイン</h3>' +
+      (lg || lastSeenByPid()[pid] ? "<p>最終ログイン：" + (lastSeenByPid()[pid] ? "<b>" + fmtTime(lastSeenByPid()[pid]) + "</b>（" + ago(lastSeenByPid()[pid]) + "）" : "記録なし") + "</p>" : "") +
       (lg ? "<p>端末 <b>" + devCode(lg.uid) + "</b> でログイン中" + (tsMs(lg.at) ? "（" + fmtTime(tsMs(lg.at)) + "〜）" : "") + (bl ? '・<b class="ng-t">ブロック中</b>' : "") + "</p>" +
           '<div class="btns"><button class="btn" type="button" id="x-release">ログインを解除</button>' +
           (bl ? '<button class="btn" type="button" id="x-unblock">ブロック解除</button>' : '<button class="btn danger" type="button" id="x-block">ブロック</button>') + "</div>" +
@@ -2087,7 +2127,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
         "<li>結果を確認・調整して「部員に公開する」</li>" +
         "<li>ご飯会が終わったら「ポイントを反映」（間違えたら取り消せます）</li></ol>" +
         "<h4>編集者のその他の機能</h4><ul>" +
-        "<li>「部員」タブ：部員の追加（4年生も）、学年・性別の変更、ログイン中の端末の確認、ログイン解除、ブロック、コメント履歴</li>" +
+        "<li>「部員」タブ：部員の追加（4年生も）、学年・性別の変更、ログイン中の端末と最終ログイン（最後にアプリを開いた時刻）の確認、ログイン解除、ブロック、コメント履歴。日程一覧には最近ログインした5人が出ます</li>" +
         "<li>コメント・領収書の削除はまずゴミ箱へ入り、元に戻せます</li>" +
         "<li>お問い合わせ：日程一覧の一番上のカードか画面上の「お問い合わせ」で新着を確認。部員に送るときは「部員」タブで部員を開き「お問い合わせ（トーク）」から</li>" +
         "<li>日程一覧の一番下の「バックアップを保存」で、全データをファイルに保存できます。ご飯会のあとに保存しておくと安心です</li></ul>" : "") +
