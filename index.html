@@ -52,19 +52,27 @@ body { color: var(--ink); font-family: var(--f-body); font-size: 15px; line-heig
 .wrap { max-width: 560px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 header.top { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); padding-top: env(safe-area-inset-top, 0px); margin-top: calc(-1 * env(safe-area-inset-top, 0px)); }
 header.top .wrap { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 12px; }
-h1 { font-family: var(--f-display); font-weight: 400; font-size: 19px; margin: 0; letter-spacing: .02em; }
+h1 { font-family: var(--f-display); font-weight: 400; font-size: 24px; margin: 0; letter-spacing: .02em; }
 .hdr-r { display: flex; gap: 8px; align-items: center; }
 .role { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; background: var(--line); color: var(--muted); white-space: nowrap; }
 .role.edit { background: var(--yolk-soft); color: var(--yolk-ink); }
 .btn.help { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .btn.help svg { width: 16px; height: 16px; flex: none; }
+.btn.help { position: relative; }
+/* 未読の数（LINE のような赤い丸） */
+.nbadge { position: absolute; top: -7px; right: -7px; min-width: 19px; height: 19px; padding: 0 5px; border-radius: 999px; background: #E5352B; color: #fff;
+  font-family: var(--f-num); font-size: 11px; font-weight: 700; line-height: 19px; text-align: center; box-shadow: 0 0 0 2px var(--bg); }
+.nbadge.in { position: static; display: inline-block; box-shadow: none; margin-left: 6px; vertical-align: 1px; }
+header.top .wrap { flex-wrap: wrap; row-gap: 8px; }
+.hdr-r { flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
 h1 { white-space: nowrap; }
 .role { max-width: 9em; overflow: hidden; text-overflow: ellipsis; }
 /* スマホではヘッダーに タイトル・使い方・名前・編集ログイン が並ぶので詰める */
 @media (max-width: 430px) {
   header.top .wrap { gap: 6px; flex-wrap: wrap; row-gap: 6px; }
-  h1 { font-size: 15px; }
-  .hdr-r { gap: 5px; margin-left: auto; }
+  /* タイトルは1行目に大きく、ボタンは2行目に並べる */
+  h1 { font-size: 24px; flex: 1 0 100%; }
+  .hdr-r { gap: 6px; margin-left: 0; justify-content: flex-start; }
   .hdr-r .btn.small { padding: 0 8px; font-size: 12px; min-height: 32px; }
   .role { font-size: 11px; padding: 3px 7px; max-width: 8em; }
 }
@@ -211,6 +219,18 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
 .rc p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .rc img, .rc-prev { display: block; max-width: 100%; max-height: 260px; object-fit: contain; border-radius: 8px; border: 1px solid var(--line); background: #fff; align-self: flex-start; cursor: zoom-in; }
 .rc-full { display: block; width: 100%; height: auto; border-radius: 8px; background: #fff; }
+/* お問い合わせのトーク */
+.chat-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 17px; }
+.chat { display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
+.msg { max-width: 82%; align-self: flex-start; background: var(--surface); border: 1px solid var(--line); border-radius: 16px 16px 16px 4px; padding: 8px 12px; }
+.msg.me { align-self: flex-end; background: var(--yolk-soft); border-color: transparent; border-radius: 16px 16px 4px 16px; }
+.msg p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg small { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; text-align: right; }
+.chat-in { flex-direction: row; align-items: flex-end; gap: 8px; padding: 10px; }
+.chat-in textarea { min-height: 44px; flex: 1; }
+.chat-in .btn { flex: none; }
+.snip { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--ink); font-size: 13px; overflow-wrap: anywhere; }
+.snip.old { color: var(--muted); }
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(76px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 14px; font-weight: 700; z-index: 30; max-width: calc(100% - 32px); }
 @media (prefers-reduced-motion: no-preference) { .toast { animation: up .2s ease-out; } @keyframes up { from { transform: translate(-50%, 8px); opacity: 0; } } }
 </style>
@@ -221,6 +241,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
   <h1>ごはんふりわけ</h1>
   <div class="hdr-r">
     <button class="btn small help" id="b-help" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M9.3 9.2a2.8 2.8 0 0 1 5.4 1c0 1.9-2.7 2.4-2.7 4"/><circle cx="12" cy="17.4" r=".6" fill="currentColor"/></svg>使い方</button>
+    <button class="btn small help" id="b-msg" type="button" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 4.5h15a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H11l-5 3.5v-3.5H4.5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2z"/><circle cx="8" cy="11" r="1.1" fill="currentColor" stroke="none"/><circle cx="12" cy="11" r="1.1" fill="currentColor" stroke="none"/><circle cx="16" cy="11" r="1.1" fill="currentColor" stroke="none"/></svg>お問い合わせ<span class="nbadge" id="msg-n" hidden></span></button>
     <span class="role" id="role">読み込み中</span>
     <button class="btn small" id="b-login" type="button" hidden>編集ログイン</button>
   </div>
@@ -346,6 +367,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       // 以前の版で既定のアプリにメールでログインしていた端末は、匿名ログインに戻す（編集ログインはやり直し）
       if (u && !u.isAnonymous) { firebase.auth().signOut(); return; }
       if (!u) firebase.auth().signInAnonymously().catch((e) => console.error(e));
+      else watchMyMsgs(memberRef, u.uid);
       render();
     });
     editorApp = firebase.initializeApp(window.FIREBASE_CONFIG, "editor");
@@ -360,6 +382,9 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       // おふざけモードの記録は編集者だけが読める
       if (canEdit && !jokerOff) jokerOff = editorRef.collection("jokers").onSnapshot((snap) => { remoteJokers = toMap(snap); render(); }, (e) => console.error(e));
       if (!canEdit && jokerOff) { jokerOff(); jokerOff = null; remoteJokers = {}; }
+      // お問い合わせは編集者なら全員分を読む
+      if (canEdit && !adminMsgOff) adminMsgOff = watchAdminMsgs(editorRef);
+      if (!canEdit && adminMsgOff) { adminMsgOff(); adminMsgOff = null; adminMsgs = []; }
       render();
     });
     $("#b-login").hidden = false;
@@ -662,16 +687,111 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     } catch (e) { console.error(e); return "error"; }
   }
 
+  // ================= お問い合わせ（部員と管理者の個人メッセージ） =================
+  // messages/{id} = {pid（部員）, uid（その部員の端末）, from: "member" | "admin", text, at, readAt（管理者が読んだ時刻）}
+  // 部員は自分の端末(uid)の分だけ読める。部員側の既読はこの端末に覚える。テストモードでは state.messages に入れる
+  let memberMsgs = [], adminMsgs = [], myMsgOff = null, myMsgUid = null, adminMsgOff = null, chatSeen = -1;
+  function msgOfDoc(doc) {
+    const x = doc.data({ serverTimestamps: "estimate" });
+    return { id: doc.id, pid: x.pid, uid: x.uid || null, from: x.from, text: x.text, readAt: x.readAt || null, at: x.at && x.at.toMillis ? x.at.toMillis() : Date.now() };
+  }
+  function watchMyMsgs(ref, me) {
+    if (me === myMsgUid) return;
+    if (myMsgOff) myMsgOff();
+    myMsgUid = me; memberMsgs = [];
+    let first = true;
+    myMsgOff = ref.collection("messages").where("uid", "==", me).onSnapshot((snap) => {
+      memberMsgs = snap.docs.map(msgOfDoc);
+      if (!first && !canEdit && snap.docChanges().some((c) => c.type === "added" && c.doc.data().from === "admin")) toast("管理者からメッセージが届きました");
+      first = false; render();
+    }, (e) => console.error(e));
+  }
+  function watchAdminMsgs(ref) {
+    let first = true;
+    return ref.collection("messages").onSnapshot((snap) => {
+      adminMsgs = snap.docs.map(msgOfDoc);
+      if (!first) {
+        const a = snap.docChanges().find((c) => c.type === "added" && c.doc.data().from === "member" && !c.doc.metadata.hasPendingWrites);
+        if (a) { const p = people()[a.doc.data().pid]; toast("新しいお問い合わせ：" + (p ? p.name : "")); }
+      }
+      first = false; render();
+    }, (e) => console.error(e));
+  }
+  function msgList() {
+    if (Store.mode !== "local") return canEdit ? adminMsgs : memberMsgs;
+    const all = Object.entries(state.messages || {}).map(([id, m]) => ({ id, ...m }));
+    return canEdit ? all : all.filter((m) => m.uid === myUid());
+  }
+  const byAt = (a, b) => a.at - b.at;
+  // 編集者: その部員とのやり取り。部員: この端末の自分のやり取り
+  const threadOf = (pid) => msgList().filter((m) => m.pid === pid).sort(byAt);
+  function myThread() {
+    const p = myPerson(), me = myUid();
+    return p ? msgList().filter((m) => m.uid === me && m.pid === p.id).sort(byAt) : [];
+  }
+  // 部員ごとのやり取り（未読がある人を上に）
+  function threads() {
+    const by = {};
+    msgList().forEach((m) => { (by[m.pid] = by[m.pid] || []).push(m); });
+    return Object.entries(by).map(([pid, ms]) => {
+      ms.sort(byAt);
+      return { pid, last: ms[ms.length - 1], unread: ms.filter((m) => m.from === "member" && !m.readAt) };
+    }).sort((a, b) => (b.unread.length > 0) - (a.unread.length > 0) || b.last.at - a.last.at);
+  }
+  const unreadOf = (pid) => threadOf(pid).filter((m) => m.from === "member" && !m.readAt).length;
+  const msgReadKey = () => "gohan-msgread:" + myUid();
+  function myLastRead() { try { return Number(localStorage.getItem(msgReadKey())) || 0; } catch (e) { return 0; } }
+  const myUnread = () => { const t = myLastRead(); return myThread().filter((m) => m.from === "admin" && m.at > t).length; };
+  function markMineRead() {
+    const last = myThread().filter((m) => m.from === "admin").reduce((a, m) => Math.max(a, m.at), 0);
+    if (last > myLastRead()) try { localStorage.setItem(msgReadKey(), String(last)); } catch (e) {}
+  }
+  // 編集者がトークを開いたら、その部員からのメッセージを既読にする
+  const marking = new Set();
+  function markThreadRead(pid) {
+    const ids = threadOf(pid).filter((m) => m.from === "member" && !m.readAt && !marking.has(m.id)).map((m) => m.id);
+    if (!ids.length) return;
+    ids.forEach((id) => marking.add(id));
+    if (Store.mode === "local") { save((s) => ids.forEach((id) => { if (s.messages[id]) s.messages[id].readAt = Date.now(); })); return; }
+    const b = Store.ref.firestore.batch();
+    ids.forEach((id) => b.update(Store.ref.collection("messages").doc(id), { readAt: Date.now() }));
+    b.commit().catch((e) => { console.error(e); ids.forEach((id) => marking.delete(id)); });
+  }
+  // 戻り値: ok / noauth / nologin / error。編集者は pid の部員へ、部員は管理者へ送る
+  async function sendMessage(pid, text) {
+    const me = myUid();
+    let rec;
+    if (canEdit) {
+      const lg = loginOf(pid);
+      if (!lg) return "nologin";
+      rec = { pid, uid: lg.uid, from: "admin", text };
+    } else {
+      const p = myPerson();
+      if (!me) return "noauth";
+      if (!p) return "nologin";
+      rec = { pid: p.id, uid: me, from: "member", text };
+    }
+    if (Store.mode === "local") {
+      const ok = await save((s) => { s.messages = s.messages || {}; s.messages[uid()] = Object.assign(rec, { at: Date.now() }); });
+      return ok ? "ok" : "error";
+    }
+    try {
+      await Store.ref.collection("messages").add(Object.assign(rec, { at: firebase.firestore.FieldValue.serverTimestamp() }));
+      return "ok";
+    } catch (e) { console.error(e); return "error"; }
+  }
+
   // ================= バックアップ =================
   // 日程・メンバー・コメント・領収書（画像込み）を1つの JSON にまとめる
   async function collectRemote(ref) {
     // owners / names はルールが古いと読めないので、読めなければ空として扱う
     const opt = (q) => q.get().catch(() => ({ forEach() {} }));
-    const [main, cs, rs, os, ns, js, ri] = await Promise.all([ref.get(), ref.collection("comments").get(), ref.collection("receipts").get(),
-      opt(ref.collection("owners")), opt(ref.collection("names")), opt(ref.collection("jokers")), opt(ref.collection("receiptImages"))]);
+    const [main, cs, rs, os, ns, js, ri, ms] = await Promise.all([ref.get(), ref.collection("comments").get(), ref.collection("receipts").get(),
+      opt(ref.collection("owners")), opt(ref.collection("names")), opt(ref.collection("jokers")), opt(ref.collection("receiptImages")), opt(ref.collection("messages"))]);
     const plain = (doc) => { const x = doc.data(); Object.keys(x).forEach((k) => { if (x[k] && x[k].toMillis) x[k] = x[k].toMillis(); }); return x; };
-    const out = { app: "gohan-huriwake", version: 1, savedAt: Date.now(), main: main.exists ? main.data() : empty(), comments: {}, receipts: {}, owners: {}, names: {}, jokers: {} };
+    const out = { app: "gohan-huriwake", version: 1, savedAt: Date.now(), main: main.exists ? main.data() : empty(), comments: {}, receipts: {}, owners: {}, names: {}, jokers: {}, messages: {} };
     cs.forEach((d) => { out.comments[d.id] = plain(d); });
+    ms.forEach((d) => { out.messages[d.id] = plain(d); });
     rs.forEach((d) => { out.receipts[d.id] = plain(d); });
     os.forEach((d) => { out.owners[d.id] = plain(d); });
     ns.forEach((d) => { out.names[d.id] = plain(d); });
@@ -682,8 +802,8 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
   }
   async function collectBackup() {
     if (Store.mode !== "local") return collectRemote(Store.ref);
-    const { comments, receipts, owners, names, jokers, ...main } = clone(state);
-    return { app: "gohan-huriwake", version: 1, savedAt: Date.now(), main, comments: comments || {}, receipts: receipts || {}, owners: owners || {}, names: names || {}, jokers: jokers || {} };
+    const { comments, receipts, owners, names, jokers, messages, ...main } = clone(state);
+    return { app: "gohan-huriwake", version: 1, savedAt: Date.now(), main, comments: comments || {}, receipts: receipts || {}, owners: owners || {}, names: names || {}, jokers: jokers || {}, messages: messages || {} };
   }
   function stamp(t) {
     const d = new Date(t), p = (n) => String(n).padStart(2, "0");
@@ -708,6 +828,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
         s.owners = Object.assign(s.owners || {}, b.owners || {});
         s.names = Object.assign(s.names || {}, b.names || {});
         s.jokers = Object.assign(s.jokers || {}, b.jokers || {});
+        s.messages = Object.assign(s.messages || {}, b.messages || {});
       });
     }
     const ts = (x) => Object.assign({}, x, { at: firebase.firestore.Timestamp.fromMillis(Number(x.at) || Date.now()) });
@@ -716,6 +837,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     await Promise.all(Object.entries(b.owners || {}).map(([id, o]) => Store.ref.collection("owners").doc(id).set(ts(o))));
     await Promise.all(Object.entries(b.names || {}).map(([id, n]) => Store.ref.collection("names").doc(id).set(ts(n))));
     await Promise.all(Object.entries(b.jokers || {}).map(([id, j]) => Store.ref.collection("jokers").doc(id).set(ts(j))));
+    await Promise.all(Object.entries(b.messages || {}).map(([id, m]) => Store.ref.collection("messages").doc(id).set(ts(m))));
     for (const [id, r] of Object.entries(b.receipts || {})) await Store.ref.collection("receipts").doc(id).set(ts(r));
     return true;
   }
@@ -728,7 +850,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     rcUrls.clear();
     return save((s) => {
       Object.keys(s).forEach((k) => delete s[k]);
-      Object.assign(s, normalize(b.main), { comments: b.comments, receipts: b.receipts, owners: b.owners, names: b.names, jokers: b.jokers });
+      Object.assign(s, normalize(b.main), { comments: b.comments, receipts: b.receipts, owners: b.owners, names: b.names, jokers: b.jokers, messages: b.messages || {} });
     }, "本番のデータを取り込みました");
   }
   // 描画のたびに大きな data URL を流し込まないよう、画像は一度だけ blob URL にしておく
@@ -798,6 +920,10 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
   function go(patch) {
     if ("dayId" in patch && !("receipts" in patch)) patch.receipts = false;
     if (patch.receipts === false) ui.rcImage = null;
+    // ほかの画面へ移るときはトーク・お問い合わせ一覧を閉じる
+    if (("dayId" in patch || "tab" in patch) && !("chat" in patch)) patch.chat = null;
+    if (("dayId" in patch || "tab" in patch) && !("inbox" in patch)) patch.inbox = false;
+    if ("chat" in patch && patch.chat !== ui.chat) chatSeen = -1;
     Object.assign(ui, patch);
     try { sessionStorage.setItem("gohan-ui", JSON.stringify({ tab: ui.tab, dayId: ui.dayId })); } catch (e) {}
     render(); window.scrollTo(0, 0);
@@ -868,9 +994,12 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     }
     // 書きかけのコメントは再描画で消さない
     const keep = {};
-    ["c-name", "c-text", "r-name", "r-note"].forEach((k) => { const el = document.getElementById(k); if (el) keep[k] = el.value; });
+    ["c-name", "c-text", "r-name", "r-note", "m-text"].forEach((k) => { const el = document.getElementById(k); if (el) keep[k] = el.value; });
     const focused = document.activeElement && document.activeElement.id;
-    if (ui.tab === "days" && ui.dayId && state.days[ui.dayId] && ui.receipts) v.innerHTML = receiptsView(ui.dayId);
+    const chatting = ui.chat && (canEdit || meP);
+    if (chatting) v.innerHTML = chatView();
+    else if (ui.inbox && canEdit) v.innerHTML = inboxView();
+    else if (ui.tab === "days" && ui.dayId && state.days[ui.dayId] && ui.receipts) v.innerHTML = receiptsView(ui.dayId);
     else if (ui.tab === "days" && ui.dayId && state.days[ui.dayId]) v.innerHTML = canEdit ? dayEditor(ui.dayId) : dayDetailView(ui.dayId);
     else if (ui.tab === "days") { ui.dayId = null; v.innerHTML = daysList(); }
     else if (ui.tab === "seniors") v.innerHTML = seniorsView();
@@ -885,6 +1014,18 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     });
     // 初めて開いた端末には「あなたはだれですか」を出す
     if (showBar && !canEdit && !meP && !isGuest() && !ui.chooserOpen) openChooser();
+    // トークを開いている間は既読にし、新しいメッセージが来たら一番下まで送る
+    if (chatting) {
+      const n = $$(".msg", v).length;
+      if (n !== chatSeen) { chatSeen = n; requestAnimationFrame(() => window.scrollTo(0, document.body.scrollHeight)); }
+      if (canEdit) setTimeout(() => markThreadRead(ui.chat), 0); else markMineRead();
+    }
+    // お問い合わせボタンは、名前を決めた部員と編集者にだけ出す。赤い丸は未読の数
+    const mb = $("#b-msg"), nb = $("#msg-n");
+    mb.hidden = !(showBar && (canEdit || meP));
+    const nU = mb.hidden ? 0 : canEdit ? msgList().filter((m) => m.from === "member" && !m.readAt).length : myUnread();
+    nb.hidden = !nU; nb.textContent = nU > 99 ? "99+" : String(nU);
+    mb.setAttribute("aria-label", "お問い合わせ" + (nU ? "（未読 " + nU + "件）" : ""));
   }
 
   const openKey = (el) => (ui.dayId || "") + ":" + el.dataset.k;
@@ -917,6 +1058,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
   function daysList() {
     const days = daysArr().filter((d) => canEdit || d.status !== "draft");
     let h = "";
+    if (canEdit) h += inboxCard();
     if (canEdit) {
       h += '<section><h2>日程を追加</h2><form class="panel" id="f-day"><div class="row"><label class="f">日付<input type="date" id="d-date" required value="' + today() + '"></label>' +
         '<label class="f">メモ（任意）<input type="text" id="d-note" maxlength="40" placeholder="例：新歓1回目"></label></div><button class="btn primary" type="submit">この日程を作る</button></form>' +
@@ -977,6 +1119,49 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     return '<section><button class="btn back" data-back type="button">← 日程一覧</button><div class="day"><div class="day-h"><div><b>' + fmtDate(d.date) +
       '</b> <span class="sub">' + esc(d.note || "") + '</span></div><span class="status st-' + d.status + '">' + STATUS[d.status] + "</span></div>" + groupSummary(d) + "</div>" +
       receiptsButton(d) + "</section>" + commentsSection(d);
+  }
+
+  // ---------- お問い合わせ ----------
+  // 編集者ホームの上に出す小さなカード。タップで一覧へ
+  function inboxCard() {
+    const pp = people(), un = threads().filter((t) => t.unread.length);
+    const n = un.reduce((a, t) => a + t.unread.length, 0);
+    const names = un.slice(0, 3).map((t) => esc(pp[t.pid] ? pp[t.pid].name : "削除した部員")).join("・") + (un.length > 3 ? " ほか" + (un.length - 3) + "人" : "");
+    return '<section><div class="day tap compact" data-inbox tabindex="0" role="button"><div class="day-h"><b>お問い合わせ</b>' +
+      (n ? '<span class="nbadge in">' + n + "</span>" : '<span class="hint">新着なし</span>') + "</div>" +
+      '<p class="hint">' + (n ? names + " から新着があります。タップして確認" : "タップすると、これまでのやり取りを見られます") + "</p></div></section>";
+  }
+  function inboxView() {
+    const pp = people(), ts = threads();
+    const nU = ts.reduce((a, t) => a + t.unread.length, 0);
+    let h = '<section><button class="btn back" data-back type="button">← 日程一覧</button><h2>お問い合わせ <small>未読 ' + nU + "件</small></h2>" +
+      '<p class="hint">部員を開くと個別のトークになります。新しく送るときは「部員」タブで部員を開き「お問い合わせ（トーク）」から。</p><ul class="list">';
+    h += ts.length ? ts.map((t) => {
+      const p = pp[t.pid];
+      // 未読があればその内容を、なければ最後のメッセージを薄く出す
+      const lines = t.unread.length ? t.unread.slice(-3).map((m) => '<span class="snip">' + esc(m.text) + "</span>").join("")
+        : '<span class="snip old">' + (t.last.from === "admin" ? "あなた：" : "") + esc(t.last.text) + "</span>";
+      return '<li class="tap" data-open-chat="' + esc(t.pid) + '" tabindex="0" role="button" style="grid-template-columns:1fr auto"><div class="who"><b>' + esc(p ? p.name : "削除した部員") + "</b><small>" +
+        (p ? personLine(p) : "") + fmtTime(t.last.at) + "</small>" + lines + "</div>" +
+        (t.unread.length ? '<span class="nbadge in">' + t.unread.length + "</span>" : "<span></span>") + "</li>";
+    }).join("") : '<li class="blank">まだお問い合わせはありません。</li>';
+    return h + "</ul></section>";
+  }
+  // 部員と管理者の1対1のトーク。編集者は ui.chat の部員と、部員は管理者とやり取りする
+  function chatView() {
+    const admin = canEdit, p = admin ? people()[ui.chat] : myPerson();
+    let h = '<section><button class="btn back" data-chat-back type="button">← 戻る</button>';
+    if (!p) return h + '<p class="hint">この部員は見つかりません。</p></section>';
+    const list = admin ? threadOf(p.id) : myThread();
+    h += '<div class="chat-h"><b>' + (admin ? esc(p.name) + " さん" : "管理者へのお問い合わせ") + "</b>" + (admin ? "<small>" + personLine(p) + "</small>" : "") + "</div>" +
+      '<p class="hint">' + (admin ? "この部員と管理者だけが見られるトークです。" : "管理者にだけ届きます。ほかの部員には見えません。") + "</p>";
+    h += '<div class="chat">' + (list.length ? list.map((m) => {
+      const mine = (m.from === "admin") === admin;
+      return '<div class="msg' + (mine ? " me" : "") + '"><p>' + esc(m.text) + "</p><small>" + (mine && m.from === "member" && m.readAt ? "既読　" : "") + fmtTime(m.at) + "</small></div>";
+    }).join("") : '<p class="hint" style="text-align:center">' + (admin ? "まだメッセージはありません。" : "わからないことや困ったことがあれば、ここから管理者に送ってください。") + "</p>") + "</div>";
+    if (admin && !loginOf(p.id)) h += '<p class="hint">この部員はまだどの端末からもログインしていないため、送っても本人に届きません。</p>';
+    else h += '<div class="panel chat-in"><textarea id="m-text" maxlength="500" rows="2" placeholder="メッセージを入力"></textarea><button class="btn primary" type="button" data-send-msg>送信</button></div>';
+    return h + "</section>";
   }
 
   // ---------- 日程の編集（1〜6の流れ） ----------
@@ -1114,14 +1299,13 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     if (!r) return "";
     if (r === "blocked") return '<p class="hint">この端末からは' + what + "を送れません。</p>";
     if (r === "noauth") return '<p class="hint">読み込み中…</p>';
-    return '<div class="panel"><p class="hint">' + what + 'を見たり送ったりするには、名前を決めてください。</p><button class="btn primary" type="button" data-choose>名前を決める</button></div>';
+    return '<div class="panel"><p class="hint">' + what + 'を送るには、名前を決めてください。見るだけなら名前がなくても見られます。</p><button class="btn primary" type="button" data-choose>名前を決める</button></div>';
   }
-  const canSeePosts = () => canEdit || !!myPerson();
 
   // ---------- 領収書（公開中〜終了後は部員もアップロードできる） ----------
   const rcOpen = (d) => d.status === "published" || d.status === "done";
   function receiptsButton(d) {
-    if (!rcOpen(d) || !canSeePosts()) return "";
+    if (!rcOpen(d)) return "";
     return '<button class="btn" type="button" data-receipts>領収書を見る・アップロード（' + dayReceipts(d.id).length + "件）</button>";
   }
   function receiptsView(id) {
@@ -1132,7 +1316,6 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       '<div class="day"><div class="day-h"><div><b>' + fmtDate(d.date) + '</b> <span class="sub">' + esc(d.note || "") + "</span></div>" +
       '<span class="status st-' + d.status + '">' + STATUS[d.status] + "</span></div></div></section>" +
       '<section><h2>領収書 <small>' + list.length + "件</small></h2>";
-    if (!canSeePosts()) return h + postGate("領収書") + "</section>";
     const gate = postGate("領収書");
     if (!rcOpen(d)) h += '<p class="hint">アップロードできるのは公開中と終了後の日程だけです。</p>';
     else if (gate) h += gate;
@@ -1183,7 +1366,6 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     const open = d.status === "published" || d.status === "done";
     if (!open && !list.length && !trash.length) return "";
     let h = '<section><h2>コメント <small>' + list.length + "件</small></h2>";
-    if (!canSeePosts()) return h + postGate("コメント") + "</section>";
     const gate = postGate("コメント");
     if (!open) h += '<p class="hint">コメントできるのは公開中と終了後の日程だけです。</p>';
     else if (gate) h += gate;
@@ -1241,8 +1423,8 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       '<button class="btn primary" type="submit">追加する</button></form></section>';
     h += '<section><h2>部員一覧 <small>' + list.length + "人（ログイン済み " + nLogin + "人）</small></h2>" + filter + '<ul class="list">' +
       (list.length ? list.map((p) => {
-        const lg = loginOf(p.id), bl = lg && blockedMap()[lg.uid];
-        return '<li class="tap" data-member="' + esc(p.id) + '" tabindex="0" role="button" style="grid-template-columns:1fr auto"><div class="who"><b>' + esc(p.name) + "</b><small>" + personLine(p) + jokeChip(p.id) +
+        const lg = loginOf(p.id), bl = lg && blockedMap()[lg.uid], nU = unreadOf(p.id);
+        return '<li class="tap" data-member="' + esc(p.id) + '" tabindex="0" role="button" style="grid-template-columns:1fr auto"><div class="who"><b>' + esc(p.name) + (nU ? '<span class="nbadge in">' + nU + "</span>" : "") + "</b><small>" + personLine(p) + jokeChip(p.id) +
           (lg ? '<span class="chip dev' + (bl ? " ng" : "") + '">端末 ' + devCode(lg.uid) + (bl ? "・ブロック中" : "") + "</span>" : '<span class="chip">未ログイン</span>') +
           '</small></div><div class="pt">' + commentsOf(p, all).length + "<small>件</small></div></li>";
       }).join("") : '<li class="blank">この学年の部員はいません。</li>') + "</ul></section>";
@@ -1311,7 +1493,10 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     const cs = commentsOf(p);
     const jk = jokerOf(pid), jkBl = jk && jokeBlockedMap()[jk.uid];
     const dayName = (id) => (state.days[id] ? fmtDate(state.days[id].date) : "削除した日程");
+    const nU = unreadOf(pid), nM = threadOf(pid).length;
     sheet("<h3>" + esc(p.name) + "</h3>" +
+      '<button class="btn help" type="button" id="x-chat" style="justify-content:center">' + $("#b-msg svg").outerHTML + "お問い合わせ（トーク）" +
+        (nU ? '<span class="nbadge">' + nU + "</span>" : nM ? "<small>　" + nM + "件</small>" : "") + "</button>" +
       '<label class="f">名前<input type="text" id="x-name" maxlength="30" value="' + esc(p.name) + '"></label>' +
       '<div class="row"><div class="f">学年' + segHtml("x-grade", [[1, "1年"], [2, "2年"], [3, "3年"], [4, "4年"]], p.grade) + '</div><div class="f">性別' + segHtml("x-gender", [["男", "男"], ["女", "女"]], p.gender) + "</div></div>" +
       '<label class="check fm-check"><input type="checkbox" id="x-fm"' + (p.fm ? " checked" : "") + "><span><b>FMに所属</b><small>2年生以上のみ。編集者にだけ表示されます。「FMメンバーを取り除く」で、その日に来られない人にまとめてチェックが入ります。</small></span></label>" +
@@ -1337,6 +1522,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
           "</div><p>" + esc(c.text) + "</p></div>").join("") + "</div>"
         : '<p class="hint">まだコメントはありません。</p>') +
       '<div class="btns"><button class="btn" type="button" data-close>閉じる</button><button class="btn danger" type="button" id="x-del">この人を削除</button></div>', (close) => {
+      $("#x-chat").onclick = () => { close(); go({ chat: pid, inbox: false }); };
       $("#x-save").onclick = () => {
         const name = $("#x-name").value.trim().slice(0, 30);
         if (!name) { toast("名前を入力してください"); return; }
@@ -1379,7 +1565,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       '<label class="f">名前' + nameSelect("who-sel") + "</label>" +
       '<button class="btn primary" type="button" id="who-next">この名前にする</button>' +
       '<button class="btn" type="button" id="who-none">この中に名前がない</button>' +
-      '<p class="hint">「この中に名前がない」を選ぶと、ログインせずにグループだけ見られます（コメントや領収書は使えません）。あとから画面上の「名前を決める」でいつでも選べます。</p>';
+      '<p class="hint">「この中に名前がない」を選ぶと、ログインせずにグループ・コメント・領収書を見られます（送ることはできません）。あとから画面上の「名前を決める」でいつでも選べます。</p>';
     sheet(step1(), (close) => {
       const box = $("#scrim .sheet");
       const done = () => { ui.chooserOpen = false; close(); render(); };
@@ -1501,6 +1687,25 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
     }
     if (t.closest("[data-choose]")) { openChooser(); return; }
     if (t.closest("#b-help")) { openHelp(); return; }
+    // お問い合わせ: 編集者は一覧、部員は管理者とのトークを開く
+    if (t.closest("#b-msg")) { canEdit ? go({ tab: "days", dayId: null, inbox: true }) : go({ chat: "me" }); return; }
+    if (t.closest("[data-inbox]") && canEdit) { go({ inbox: true, chat: null }); return; }
+    const oc = t.closest("[data-open-chat]");
+    if (oc && canEdit) { go({ chat: oc.dataset.openChat }); return; }
+    if (t.closest("[data-chat-back]")) { go({ chat: null }); return; }
+    const sm = t.closest("[data-send-msg]");
+    if (sm && ui.chat) {
+      const text = ($("#m-text") ? $("#m-text").value : "").trim().slice(0, 500);
+      if (!text) { toast("メッセージを入力してください"); return; }
+      sm.disabled = true;
+      sendMessage(canEdit ? ui.chat : null, text).then((r) => {
+        if (r === "ok") { const ta = $("#m-text"); if (ta) ta.value = ""; }
+        else toast(r === "nologin" ? (canEdit ? "この部員はまだログインしていません" : POST_MSG.nologin) : r === "noauth" ? POST_MSG.noauth : "送れませんでした。通信を確認してください");
+        const b = $("[data-send-msg]"); if (b) b.disabled = false;
+        render();
+      });
+      return;
+    }
     if (t.closest("[data-joke-exit]")) { setJoke(false); render(); toast("おふざけモードを終了しました"); return; }
     if (t.closest("[data-joke-enter]") && canEdit) { enterJokeAsEditor(); return; }
     if (t.closest("[data-joke-global]") && canEdit) {
@@ -1862,7 +2067,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       '<p class="hint">「一年生をご飯に連れていく会」の担当を、ごはんポイントで公平に決めるアプリです。</p>' +
       "<h4>はじめに</h4><ul>" +
       "<li>最初に開いたとき、<b>自分の名前</b>を選びます。本人以外の名前は選ばないでください。一度決めると変更できず、その端末に保存されます。</li>" +
-      "<li>名前が見つからないときは「この中に名前がない」を選ぶと、グループだけ見られます。あとから画面上の「名前を決める」で選べます。</li></ul>" +
+      "<li>名前が見つからないときは「この中に名前がない」を選ぶと、グループ・コメント・領収書を見ることだけできます。あとから画面上の「名前を決める」で選べます。</li></ul>" +
       "<h4>日程・グループを見る</h4><ul>" +
       "<li>「日程」タブで公開中の日をタップすると、グループごとのメンバー（新上級生と1年生）が見られます。</li></ul>" +
       "<h4>コメント</h4><ul>" +
@@ -1871,6 +2076,8 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
       "<li>ご飯のあと、その日の「領収書を見る・アップロード」からレシートの写真を送ります。金額などは備考へ。1年生は全額、部員の補助は500円までです。</li></ul>" +
       "<h4>ごはんポイント</h4><ul>" +
       "<li>ポイントが少ない人ほど、次の担当に選ばれやすくなります。ご飯に行くとポイントが上がり、行かなかった人は少しずつ下がります。</li></ul>" +
+      "<h4>お問い合わせ</h4><ul>" +
+      "<li>名前を決めると、画面上の「お問い合わせ」から管理者に直接メッセージを送れます。ほかの部員には見えません。管理者から返信が来ると、赤い丸で数が出ます。</li></ul>" +
       "<h4>困ったとき</h4><ul>" +
       "<li>機種変更などで名前を選び直したいとき、間違えて別の名前を選んだときは、管理者に連絡してください。</li></ul>" +
       (canEdit ? "<h4>編集者の流れ</h4><ol>" +
@@ -1882,6 +2089,7 @@ nav.tabs button[aria-selected="true"] svg { color: var(--yolk); }
         "<h4>編集者のその他の機能</h4><ul>" +
         "<li>「部員」タブ：部員の追加（4年生も）、学年・性別の変更、ログイン中の端末の確認、ログイン解除、ブロック、コメント履歴</li>" +
         "<li>コメント・領収書の削除はまずゴミ箱へ入り、元に戻せます</li>" +
+        "<li>お問い合わせ：日程一覧の一番上のカードか画面上の「お問い合わせ」で新着を確認。部員に送るときは「部員」タブで部員を開き「お問い合わせ（トーク）」から</li>" +
         "<li>日程一覧の一番下の「バックアップを保存」で、全データをファイルに保存できます。ご飯会のあとに保存しておくと安心です</li></ul>" : "") +
       '</div><button class="btn" type="button" data-close>閉じる</button>', () => {});
   }
